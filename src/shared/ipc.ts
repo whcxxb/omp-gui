@@ -1,5 +1,7 @@
 // 主进程与渲染进程共享的 IPC 数据结构。
 
+export type ApprovalMode = "yolo" | "write" | "always-ask";
+
 export interface SessionSummary {
 	/** 会话文件绝对路径 */
 	file: string;
@@ -33,6 +35,8 @@ export interface OpenSessionOptions {
 	cwd: string;
 	/** 恢复已有会话；不传则新建 */
 	sessionFile?: string;
+	/** 工具审批模式；默认从用户全局配置中读取 */
+	approvalMode?: ApprovalMode;
 }
 
 /** 主进程推送到渲染进程的运行时消息 */
@@ -50,6 +54,8 @@ export interface OmpApi {
 	request<T = unknown>(runtimeId: string, command: Record<string, unknown>): Promise<T>;
 	send(runtimeId: string, frame: Record<string, unknown>): Promise<void>;
 	ompVersion(): Promise<string | null>;
+	defaultApprovalMode(): Promise<ApprovalMode>;
+	setDefaultApprovalMode(mode: ApprovalMode): Promise<void>;
 	revealPath(path: string): Promise<void>;
 	onRuntime(listener: (runtimeId: string, message: RuntimeMessage) => void): () => void;
 	onProjectsChanged(listener: () => void): () => void;

@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { OpenSessionOptions, RuntimeInfo, RuntimeMessage } from "@shared/ipc";
+import type { ApprovalMode, OpenSessionOptions, RuntimeInfo, RuntimeMessage } from "@shared/ipc";
 import { OmpRpc } from "./omp-rpc";
 
 /** 最多保留的空闲进程数（正在执行的不计入淘汰） */
@@ -49,6 +49,22 @@ export function ompVersion(): string | null {
 		return null;
 	}
 }
+export function detectDefaultApprovalMode(): ApprovalMode {
+	const omp = resolveOmp();
+	if (!omp) return "yolo";
+	try {
+		const out = execFileSync(omp, ["config", "get", "tools.approvalMode"], {
+			encoding: "utf8",
+			env: loginEnv(),
+			timeout: 5000,
+		}).trim();
+		if (out === "always-ask" || out === "write" || out === "yolo") return out;
+	} catch {
+		// 回退 yolo
+	}
+	return "yolo";
+}
+
 
 interface Entry {
 	rpc: OmpRpc;
@@ -64,7 +80,7 @@ export class RuntimePool {
 	async open(options: OpenSessionOptions): Promise<RuntimeInfo> {
 		const ompPath = resolveOmp();
 		if (!ompPath) throw new Error("未找到 omp 可执行文件，请确认已安装并在 PATH 中");
-		const rpc = new OmpRpc({ ompPath, cwd: options.cwd, env: loginEnv() });
+		const rpc = new OmpRpc({ ompPath, cwd: options.cwd, approvalMode: options.approvalMode, env: loginEnv() });
 		const entry: Entry = { rpc, lastUsed: Date.now(), streaming: false };
 		this.#entries.set(rpc.id, entry);
 

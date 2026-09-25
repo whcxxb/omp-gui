@@ -3,7 +3,7 @@ import { useSyncExternalStore } from "react";
 import type { RuntimeMessage } from "@shared/ipc";
 import type { ActiveTool } from "@/collab/lib/client";
 import type { AssistantMessage, SessionEntry, WireMessage } from "@/collab/wire/index";
-import type { Notice, SessionStateSnapshot, Thread, UiRequest } from "./types";
+import type { ApprovalMode, Notice, SessionStateSnapshot, Thread, UiRequest } from "./types";
 
 const MAX_NOTICES = 20;
 
@@ -13,6 +13,13 @@ let threads: Thread[] = [];
 const listeners = new Set<() => void>();
 let entrySeq = 0;
 let noticeSeq = 0;
+let defaultApprovalMode: ApprovalMode = "yolo";
+if (typeof window !== "undefined" && window.omp?.defaultApprovalMode) {
+	window.omp.defaultApprovalMode().then(mode => {
+		defaultApprovalMode = mode;
+	}).catch(() => undefined);
+}
+
 
 function commit(): void {
 	threads = [...threads];
@@ -107,7 +114,11 @@ async function attach(key: string): Promise<void> {
 	if (!thread) return;
 	update(key, () => ({ status: "starting", error: undefined }));
 	try {
-		const info = await window.omp.openSession({ cwd: thread.cwd, sessionFile: thread.sessionFile });
+		const info = await window.omp.openSession({
+			cwd: thread.cwd,
+			sessionFile: thread.sessionFile,
+			approvalMode: thread.approvalMode,
+		});
 		update(key, () => ({ runtimeId: info.runtimeId, status: "ready" }));
 		await Promise.all([refreshState(key), thread.sessionFile ? loadEntries(key) : Promise.resolve()]);
 	} catch (error) {
@@ -115,12 +126,13 @@ async function attach(key: string): Promise<void> {
 	}
 }
 
-function blankThread(cwd: string, sessionFile?: string): Thread {
+function blankThread(cwd: string, sessionFile?: string, approvalMode: ApprovalMode = defaultApprovalMode): Thread {
 	return {
 		key: crypto.randomUUID(),
 		runtimeId: null,
 		cwd,
 		sessionFile,
+		approvalMode,
 		status: "starting",
 		entries: [],
 		stream: null,
@@ -337,5 +349,31 @@ export function setModel(key: string, model: { provider: string; id: string }): 
 export function setThinkingLevel(key: string, level: string): Promise<unknown> {
 	return runCommand(key, { type: "set_thinking_level", level });
 }
+export async function setApprovalMode(key: string, mode: ApprovalMode): Promise<void> {
+	const thread = getThread(key);
+	if (!thread || thread.approvalMode === mode) return;
+	const sessionFile = thread.sessionFile ?? thread.state?.sessionFile;
+	update(key, () => ({ approvalMode: mode, sessionFile }));
+	if (thread.runtimeId) {
+		const oldId = thread.runtimeId;
+		update(key, () => ({ runtimeId: null, status: "starting" }));
+		try {
+			await window.omp.closeRuntime(oldId);
+		} catch {
+			// 忽略关闭异常
+		}
+	}
+	void attach(key);
+}
+
+export function setDefaultApprovalMode(mode: ApprovalMode): void {
+	defaultApprovalMode = mode;
+	void window.omp.setDefaultApprovalMode(mode);
+}
+
+export function getDefaultApprovalMode(): ApprovalMode {
+	return defaultApprovalMode;
+}
+
 
 export type { SessionStateSnapshot };

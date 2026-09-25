@@ -2,12 +2,15 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { app } from "electron";
+import type { ApprovalMode } from "@shared/ipc";
 
 interface StoreData {
 	/** 用户手动添加的项目 */
 	projects: string[];
 	/** 从列表中移除的项目 */
 	hidden: string[];
+	/** 默认审批模式 */
+	defaultApprovalMode?: ApprovalMode;
 }
 
 const DEFAULTS: StoreData = { projects: [], hidden: [] };

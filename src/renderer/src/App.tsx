@@ -1,7 +1,7 @@
-import { FolderOpen, FolderPlus, RotateCw, X } from "lucide-react";
+import { FolderOpen, FolderPlus, RotateCw, Shield, ShieldAlert, ShieldCheck, X } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import type { ProjectSummary, SessionSummary } from "@shared/ipc";
-import { Composer } from "./components/Composer";
+import { APPROVAL_CONFIG, Composer } from "./components/Composer";
 import { Sidebar } from "./components/Sidebar";
 import { ThreadView } from "./components/ThreadView";
 import { UiRequestCard } from "./components/UiRequestCard";
@@ -132,6 +132,17 @@ function ThreadPane({ thread }: { thread: Thread }): ReactNode {
 		<>
 			<header className="mh">
 				<div className="mh-title">{title}</div>
+				{(() => {
+					const mode = thread.approvalMode ?? "yolo";
+					const cfg = APPROVAL_CONFIG[mode] ?? APPROVAL_CONFIG.yolo;
+					const Icon = mode === "write" ? ShieldCheck : mode === "always-ask" ? ShieldAlert : Shield;
+					return (
+						<div className={`mh-mode is-${mode}`} title={`审批模式：${cfg.label}（${cfg.desc}）`}>
+							<Icon size={12} />
+							<span>{cfg.label}</span>
+						</div>
+					);
+				})()}
 				<button
 					type="button"
 					className="mh-path"

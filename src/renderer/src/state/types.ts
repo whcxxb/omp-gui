@@ -1,4 +1,7 @@
 import type { ActiveTool } from "@/collab/lib/client";
+import type { ApprovalMode } from "@shared/ipc";
+
+export type { ApprovalMode };
 import type { AssistantMessage, SessionEntry } from "@/collab/wire/index";
 
 export interface ModelInfo {
@@ -46,6 +49,7 @@ export interface Thread {
 	runtimeId: string | null;
 	cwd: string;
 	sessionFile?: string;
+	approvalMode: ApprovalMode;
 	status: ThreadStatus;
 	error?: string;
 	entries: SessionEntry[];

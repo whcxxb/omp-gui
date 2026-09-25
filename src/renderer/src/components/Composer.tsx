@@ -1,7 +1,25 @@
-import { ArrowUp, Brain, Check, ChevronDown, Square } from "lucide-react";
+import { ArrowUp, Brain, Check, ChevronDown, Shield, ShieldAlert, ShieldCheck, Square } from "lucide-react";
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
-import { abort, runCommand, sendPrompt, setModel, setThinkingLevel } from "@/state/threads";
-import type { ModelInfo, Thread } from "@/state/types";
+import { abort, runCommand, sendPrompt, setApprovalMode, setModel, setThinkingLevel } from "@/state/threads";
+import type { ApprovalMode, ModelInfo, Thread } from "@/state/types";
+
+export const APPROVAL_CONFIG: Record<ApprovalMode, { label: string; sub: string; desc: string }> = {
+	"yolo": {
+		label: "全自动",
+		sub: "yolo",
+		desc: "跳过工具审批，自动执行全部操作",
+	},
+	"write": {
+		label: "写入审批",
+		sub: "write",
+		desc: "只读自动允许，修改文件与终端命令需确认",
+	},
+	"always-ask": {
+		label: "全部审批",
+		sub: "always-ask",
+		desc: "最高安全级别，所有工具调用均需手动确认",
+	},
+};
 
 const THINKING_LABELS: Record<string, string> = {
 	off: "关闭",
@@ -64,6 +82,7 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 			<div className="cp-bar">
 				<ModelPicker thread={thread} />
 				<ThinkingPicker thread={thread} />
+				<ApprovalModePicker thread={thread} />
 				<div className="cp-spacer" />
 				{queued > 0 && <span className="cp-meta">排队 {queued}</span>}
 				{usage?.percent != null && (
@@ -223,3 +242,59 @@ function ThinkingPicker({ thread }: { thread: Thread }): ReactNode {
 		</div>
 	);
 }
+function ApprovalModePicker({ thread }: { thread: Thread }): ReactNode {
+	const [open, setOpen, ref] = usePopover();
+	const currentMode = thread.approvalMode ?? "yolo";
+	const current = APPROVAL_CONFIG[currentMode] ?? APPROVAL_CONFIG.yolo;
+
+	const Icon = currentMode === "write" ? ShieldCheck : currentMode === "always-ask" ? ShieldAlert : Shield;
+
+	return (
+		<div className="pk" ref={ref}>
+			<button
+				type="button"
+				className="pk-trigger"
+				title={`审批模式：${current.label}（${current.desc}）`}
+				disabled={thread.status !== "ready"}
+				onClick={() => setOpen(!open)}
+			>
+				<Icon size={13} />
+				<span className="pk-label">{current.label}</span>
+				<ChevronDown size={12} />
+			</button>
+			{open && (
+				<div className="pk-pop is-approval">
+					<div className="pk-list">
+						{(Object.keys(APPROVAL_CONFIG) as ApprovalMode[]).map(mode => {
+							const cfg = APPROVAL_CONFIG[mode];
+							const selected = mode === currentMode;
+							const ModeIcon = mode === "write" ? ShieldCheck : mode === "always-ask" ? ShieldAlert : Shield;
+							return (
+								<button
+									type="button"
+									key={mode}
+									className={`pk-item is-multiline${selected ? " is-selected" : ""}`}
+									onClick={() => {
+										setOpen(false);
+										void setApprovalMode(thread.key, mode);
+									}}
+								>
+									<div className="pk-item-content">
+										<div className="pk-item-row">
+											<ModeIcon size={12} />
+											<span className="pk-item-main">{cfg.label}</span>
+											<span className="pk-item-sub">{cfg.sub}</span>
+										</div>
+										<span className="pk-item-desc">{cfg.desc}</span>
+									</div>
+									{selected && <Check size={13} />}
+								</button>
+							);
+						})}
+					</div>
+				</div>
+			)}
+		</div>
+	);
+}
+

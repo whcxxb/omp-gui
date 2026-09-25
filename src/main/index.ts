@@ -1,8 +1,8 @@
 import { watch } from "node:fs";
 import { join } from "node:path";
-import type { OpenSessionOptions } from "@shared/ipc";
+import type { ApprovalMode, OpenSessionOptions } from "@shared/ipc";
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from "electron";
-import { ompVersion, RuntimePool } from "./runtimes";
+import { detectDefaultApprovalMode, ompVersion, RuntimePool } from "./runtimes";
 import { groupProjects, scanSessions, sessionsDir } from "./sessions";
 import { readStore, writeStore } from "./store";
 
@@ -92,6 +92,14 @@ function registerIpc(): void {
 	});
 	ipcMain.handle("omp:send", (_e, runtimeId: string, frame: Record<string, unknown>) => pool.get(runtimeId).send(frame));
 	ipcMain.handle("omp:version", () => ompVersion());
+	ipcMain.handle("omp:default-approval-mode", () => {
+		const store = readStore();
+		return store.defaultApprovalMode ?? detectDefaultApprovalMode();
+	});
+	ipcMain.handle("omp:set-default-approval-mode", (_e, mode: ApprovalMode) => {
+		const store = readStore();
+		writeStore({ ...store, defaultApprovalMode: mode });
+	});
 	ipcMain.handle("omp:reveal", (_e, path: string) => shell.showItemInFolder(path));
 }
 

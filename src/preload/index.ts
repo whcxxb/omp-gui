@@ -10,6 +10,8 @@ const api: OmpApi = {
 	request: (runtimeId, command) => ipcRenderer.invoke("omp:request", runtimeId, command),
 	send: (runtimeId, frame) => ipcRenderer.invoke("omp:send", runtimeId, frame),
 	ompVersion: () => ipcRenderer.invoke("omp:version"),
+	defaultApprovalMode: () => ipcRenderer.invoke("omp:default-approval-mode"),
+	setDefaultApprovalMode: mode => ipcRenderer.invoke("omp:set-default-approval-mode", mode),
 	revealPath: path => ipcRenderer.invoke("omp:reveal", path),
 	onRuntime(listener) {
 		const handler = (_e: unknown, runtimeId: string, message: RuntimeMessage) => listener(runtimeId, message);

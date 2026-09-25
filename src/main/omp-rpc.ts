@@ -2,6 +2,7 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
+import type { ApprovalMode } from "@shared/ipc";
 
 type Frame = Record<string, unknown>;
 
@@ -30,6 +31,7 @@ export class RpcError extends Error {
 export interface OmpRpcOptions {
 	ompPath: string;
 	cwd: string;
+	approvalMode?: ApprovalMode;
 	env?: NodeJS.ProcessEnv;
 }
 
@@ -53,7 +55,11 @@ export class OmpRpc extends EventEmitter {
 	constructor(options: OmpRpcOptions) {
 		super();
 		this.cwd = options.cwd;
-		this.#child = spawn(options.ompPath, ["--mode", "rpc", "--cwd", options.cwd], {
+		const args = ["--mode", "rpc", "--cwd", options.cwd];
+		if (options.approvalMode) {
+			args.push(`--approval-mode=${options.approvalMode}`);
+		}
+		this.#child = spawn(options.ompPath, args, {
 			cwd: options.cwd,
 			env: options.env ?? process.env,
 			stdio: ["pipe", "pipe", "pipe"],
