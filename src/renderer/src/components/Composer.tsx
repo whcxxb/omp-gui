@@ -10,13 +10,15 @@ import {
 	ShieldAlert,
 	ShieldCheck,
 	Square,
+	Terminal,
 	UploadCloud,
 	X,
 } from "lucide-react";
-import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { ImageContent } from "@/collab/wire/index";
 import { abort, runCommand, sendPrompt, setApprovalMode, setModel, setThinkingLevel } from "@/state/threads";
-import type { ApprovalMode, ModelInfo, Thread } from "@/state/types";
+import type { ApprovalMode, ModelInfo, SlashCommand, Thread } from "@/state/types";
+
 
 export type ComposerAttachment =
 	| {
@@ -122,11 +124,12 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 	const [text, setText] = useState("");
 	const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
 	const [isDragging, setIsDragging] = useState(false);
+	const [slashDismissed, setSlashDismissed] = useState(false);
+	const [slashSelectedIdx, setSlashSelectedIdx] = useState(0);
 	const dragCounter = useRef(0);
 	const inputRef = useRef<HTMLTextAreaElement | null>(null);
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
 	const connected = thread.status === "ready";
-
 	useEffect(() => {
 		if (autoFocus) inputRef.current?.focus();
 	}, [thread.key, autoFocus]);
@@ -137,6 +140,45 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 		el.style.height = "auto";
 		el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
 	}, [text, attachments]);
+
+	const slashMatch = useMemo(() => {
+		if (!text.startsWith("/")) return null;
+		const spaceIdx = text.indexOf(" ");
+		if (spaceIdx !== -1) return null;
+		const query = text.slice(1).toLowerCase();
+		const all = thread.availableCommands ?? [];
+		if (all.length === 0) return null;
+		const filtered = all.filter(c => {
+			if (!query) return true;
+			return (
+				c.name.toLowerCase().includes(query) ||
+				c.aliases?.some(a => a.toLowerCase().includes(query))
+			);
+		});
+		filtered.sort((a, b) => {
+			const aExact = a.name.toLowerCase() === query;
+			const bExact = b.name.toLowerCase() === query;
+			if (aExact && !bExact) return -1;
+			if (!aExact && bExact) return 1;
+			const aPrefix = a.name.toLowerCase().startsWith(query);
+			const bPrefix = b.name.toLowerCase().startsWith(query);
+			if (aPrefix && !bPrefix) return -1;
+			if (!aPrefix && bPrefix) return 1;
+			return a.name.localeCompare(b.name);
+		});
+		return filtered;
+	}, [text, thread.availableCommands]);
+
+	useEffect(() => {
+		setSlashSelectedIdx(0);
+		setSlashDismissed(false);
+	}, [slashMatch]);
+
+	const selectSlashCommand = (cmd: SlashCommand): void => {
+		setText(`/${cmd.name} `);
+		setSlashDismissed(true);
+		inputRef.current?.focus();
+	};
 
 	const submit = (): void => {
 		const trimmed = text.trim();
@@ -170,6 +212,29 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 	};
 
 	const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+		if (slashMatch && slashMatch.length > 0 && !slashDismissed) {
+			if (event.key === "ArrowDown") {
+				event.preventDefault();
+				setSlashSelectedIdx(i => (i + 1) % slashMatch.length);
+				return;
+			}
+			if (event.key === "ArrowUp") {
+				event.preventDefault();
+				setSlashSelectedIdx(i => (i - 1 + slashMatch.length) % slashMatch.length);
+				return;
+			}
+			if (event.key === "Enter" || event.key === "Tab") {
+				event.preventDefault();
+				selectSlashCommand(slashMatch[slashSelectedIdx] ?? slashMatch[0]);
+				return;
+			}
+			if (event.key === "Escape") {
+				event.preventDefault();
+				setSlashDismissed(true);
+				return;
+			}
+		}
+
 		if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
 			event.preventDefault();
 			submit();
@@ -250,6 +315,43 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 					<span>拖放文件或图片到此处</span>
 				</div>
 			)}
+			{slashMatch && slashMatch.length > 0 && !slashDismissed && (
+				<div className="cp-slash-menu">
+					<div className="cp-slash-head">
+						<span>可用命令（{slashMatch.length}）</span>
+						<span>↑↓ 导航 · Enter / Tab 确认 · Esc 关闭</span>
+					</div>
+					<div className="cp-slash-list">
+						{slashMatch.slice(0, 30).map((cmd, idx) => {
+							const isSelected = idx === slashSelectedIdx;
+							return (
+								<button
+									type="button"
+									key={cmd.name}
+									className={`cp-slash-item${isSelected ? " is-selected" : ""}`}
+									onMouseEnter={() => setSlashSelectedIdx(idx)}
+									onClick={() => selectSlashCommand(cmd)}
+								>
+									<Terminal size={14} className="cp-slash-icon" />
+									<div className="cp-slash-content">
+										<div className="cp-slash-title-row">
+											<span className="cp-slash-name">/{cmd.name}</span>
+											{cmd.input?.hint && <span className="cp-slash-hint">{cmd.input.hint}</span>}
+											{cmd.aliases && cmd.aliases.length > 0 && (
+												<span className="cp-slash-aliases">
+													{cmd.aliases.map(a => `/${a}`).join(" ")}
+												</span>
+											)}
+										</div>
+										{cmd.description && <span className="cp-slash-desc">{cmd.description}</span>}
+									</div>
+								</button>
+							);
+						})}
+					</div>
+				</div>
+			)}
+
 
 			{attachments.length > 0 && (
 				<div className="cp-attachments">

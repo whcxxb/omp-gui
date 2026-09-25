@@ -16,6 +16,14 @@ export interface ContextUsage {
 	contextWindow: number | null;
 	percent: number | null;
 }
+export interface SlashCommand {
+	name: string;
+	aliases?: string[];
+	description?: string;
+	input?: { hint?: string };
+	subcommands?: Array<{ name: string; description?: string; usage?: string }>;
+}
+
 
 /** get_state 的子集 */
 export interface SessionStateSnapshot {
@@ -58,6 +66,7 @@ export interface Thread {
 	activeTools: ReadonlyMap<string, ActiveTool>;
 	working: boolean;
 	state: SessionStateSnapshot | null;
+	availableCommands: SlashCommand[];
 	uiRequests: UiRequest[];
 	notices: Notice[];
 }

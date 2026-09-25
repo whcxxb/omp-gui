@@ -96,7 +96,26 @@ async function run() {
 		await evalJs('document.querySelector(".cp-att-remove")?.click()');
 		await new Promise(r => setTimeout(r, 200));
 
-		console.log("5. 冒烟测试全部通过！");
+		console.log("5. 测试斜杠命令补全浮层...");
+		await evalJs('document.querySelector(".cp-input").focus()');
+		await send("Input.insertText", { text: "/m" });
+		await new Promise(r => setTimeout(r, 400));
+		const menuFound = await evalJs('!!document.querySelector(".cp-slash-menu")');
+		if (!menuFound) throw new Error("斜杠命令菜单未弹出");
+		console.log("   斜杠菜单成功弹出并匹配");
+
+		// Enter 完成补全
+		await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+		await send("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+		await new Promise(r => setTimeout(r, 300));
+		const inputAfterCmd = await evalJs('document.querySelector(".cp-input")?.value');
+		if (!inputAfterCmd?.startsWith("/")) throw new Error(`命令补全失败: ${inputAfterCmd}`);
+		console.log("   命令成功自动补全到输入框:", inputAfterCmd);
+
+		// 清空输入框
+		await evalJs('document.querySelector(".cp-input").value = ""');
+
+		console.log("6. 冒烟测试全部通过！");
 		ws.close();
 	} finally {
 		electron.kill();
