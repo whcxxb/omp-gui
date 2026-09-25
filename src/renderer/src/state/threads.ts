@@ -2,7 +2,7 @@
 import { useSyncExternalStore } from "react";
 import type { RuntimeMessage } from "@shared/ipc";
 import type { ActiveTool } from "@/collab/lib/client";
-import type { AssistantMessage, SessionEntry, WireMessage } from "@/collab/wire/index";
+import type { AssistantMessage, ImageContent, SessionEntry, WireMessage } from "@/collab/wire/index";
 import type { ApprovalMode, Notice, SessionStateSnapshot, Thread, UiRequest } from "./types";
 
 const MAX_NOTICES = 20;
@@ -180,11 +180,12 @@ export async function closeThread(key: string): Promise<void> {
 }
 
 /** 发送提示；执行中时作为排队的后续消息。 */
-export async function sendPrompt(key: string, message: string): Promise<void> {
+export async function sendPrompt(key: string, message: string, images?: ImageContent[]): Promise<void> {
 	const thread = getThread(key);
 	if (!thread?.runtimeId) return;
 	if (thread.status !== "ready") return;
 	const command: Frame = { type: "prompt", message };
+	if (images && images.length > 0) command.images = images;
 	if (thread.working) command.streamingBehavior = "followUp";
 	try {
 		await window.omp.request(thread.runtimeId, command);

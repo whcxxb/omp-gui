@@ -1,8 +1,94 @@
-import { ArrowUp, Brain, Check, ChevronDown, Shield, ShieldAlert, ShieldCheck, Square } from "lucide-react";
+import {
+	ArrowUp,
+	Brain,
+	Check,
+	ChevronDown,
+	FileText,
+	Image as ImageIcon,
+	Paperclip,
+	Shield,
+	ShieldAlert,
+	ShieldCheck,
+	Square,
+	UploadCloud,
+	X,
+} from "lucide-react";
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import type { ImageContent } from "@/collab/wire/index";
 import { abort, runCommand, sendPrompt, setApprovalMode, setModel, setThinkingLevel } from "@/state/threads";
 import type { ApprovalMode, ModelInfo, Thread } from "@/state/types";
 
+export type ComposerAttachment =
+	| {
+			id: string;
+			type: "image";
+			name: string;
+			path?: string;
+			mimeType: string;
+			data: string; // base64
+			previewUrl: string;
+	  }
+	| {
+			id: string;
+			type: "file";
+			name: string;
+			path: string;
+			relativePath: string;
+	  };
+
+async function processDroppedFiles(files: FileList | File[], cwd: string): Promise<ComposerAttachment[]> {
+	const results: ComposerAttachment[] = [];
+	for (const file of Array.from(files)) {
+		let filePath = "";
+		if (window.omp.getPathForFile) {
+			try {
+				filePath = window.omp.getPathForFile(file) || "";
+			} catch {
+				filePath = "";
+			}
+		}
+		if (!filePath && "path" in file && typeof file.path === "string") {
+			filePath = file.path;
+		}
+		const isImage = file.type.startsWith("image/") || /\.(png|jpe?g|webp|gif|svg|bmp)$/i.test(file.name);
+		if (isImage) {
+			try {
+				const dataUrl = await new Promise<string>((resolve, reject) => {
+					const reader = new FileReader();
+					reader.onload = () => resolve(reader.result as string);
+					reader.onerror = reject;
+					reader.readAsDataURL(file);
+				});
+				const comma = dataUrl.indexOf(",");
+				const base64 = comma !== -1 ? dataUrl.slice(comma + 1) : dataUrl;
+				const mimeType = file.type || "image/png";
+				results.push({
+					id: crypto.randomUUID(),
+					type: "image",
+					name: file.name,
+					path: filePath || undefined,
+					mimeType,
+					data: base64,
+					previewUrl: URL.createObjectURL(file),
+				});
+			} catch (e) {
+				console.error("Failed to read image:", e);
+			}
+		} else {
+			const rel = filePath
+				? (filePath.startsWith(cwd) ? filePath.slice(cwd.length).replace(/^[/\\]+/, "") : filePath)
+				: file.name;
+			results.push({
+				id: crypto.randomUUID(),
+				type: "file",
+				name: file.name,
+				path: filePath || file.name,
+				relativePath: rel,
+			});
+		}
+	}
+	return results;
+}
 export const APPROVAL_CONFIG: Record<ApprovalMode, { label: string; sub: string; desc: string }> = {
 	"yolo": {
 		label: "全自动",
@@ -34,7 +120,11 @@ const THINKING_LABELS: Record<string, string> = {
 
 export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: boolean }): ReactNode {
 	const [text, setText] = useState("");
+	const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+	const [isDragging, setIsDragging] = useState(false);
+	const dragCounter = useRef(0);
 	const inputRef = useRef<HTMLTextAreaElement | null>(null);
+	const fileInputRef = useRef<HTMLInputElement | null>(null);
 	const connected = thread.status === "ready";
 
 	useEffect(() => {
@@ -46,13 +136,37 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 		if (!el) return;
 		el.style.height = "auto";
 		el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
-	}, [text]);
+	}, [text, attachments]);
 
 	const submit = (): void => {
-		const message = text.trim();
-		if (!message || !connected) return;
+		const trimmed = text.trim();
+		if ((!trimmed && attachments.length === 0) || !connected) return;
+
+		const images: ImageContent[] = attachments
+			.filter((a): a is Extract<ComposerAttachment, { type: "image" }> => a.type === "image")
+			.map(a => ({
+				type: "image",
+				data: a.data,
+				mimeType: a.mimeType,
+			}));
+
+		const files = attachments.filter(
+			(a): a is Extract<ComposerAttachment, { type: "file" }> => a.type === "file",
+		);
+
+		let message = trimmed;
+		if (files.length > 0) {
+			const refs = files.map(f => `- \`${f.relativePath || f.path}\``).join("\n");
+			if (message) {
+				message = `${message}\n\n[附带文件]:\n${refs}`;
+			} else {
+				message = `请查看以下附带文件：\n${refs}`;
+			}
+		}
+
 		setText("");
-		void sendPrompt(thread.key, message);
+		setAttachments([]);
+		void sendPrompt(thread.key, message, images.length > 0 ? images : undefined);
 	};
 
 	const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -62,24 +176,148 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 		}
 	};
 
+	const onDragEnter = (e: React.DragEvent): void => {
+		e.preventDefault();
+		e.stopPropagation();
+		dragCounter.current += 1;
+		setIsDragging(true);
+	};
+
+	const onDragLeave = (e: React.DragEvent): void => {
+		e.preventDefault();
+		e.stopPropagation();
+		dragCounter.current -= 1;
+		if (dragCounter.current <= 0) {
+			dragCounter.current = 0;
+			setIsDragging(false);
+		}
+	};
+
+	const onDragOver = (e: React.DragEvent): void => {
+		e.preventDefault();
+		e.stopPropagation();
+		e.dataTransfer.dropEffect = "copy";
+	};
+
+	const onDrop = async (e: React.DragEvent): Promise<void> => {
+		e.preventDefault();
+		e.stopPropagation();
+		dragCounter.current = 0;
+		setIsDragging(false);
+		if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+			const newAtts = await processDroppedFiles(e.dataTransfer.files, thread.cwd);
+			if (newAtts.length > 0) {
+				setAttachments(prev => [...prev, ...newAtts]);
+			}
+		}
+	};
+
+	const onPaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>): Promise<void> => {
+		if (e.clipboardData.files && e.clipboardData.files.length > 0) {
+			const newAtts = await processDroppedFiles(e.clipboardData.files, thread.cwd);
+			if (newAtts.length > 0) {
+				setAttachments(prev => [...prev, ...newAtts]);
+			}
+		}
+	};
+
+	const removeAttachment = (id: string): void => {
+		setAttachments(prev => {
+			const item = prev.find(a => a.id === id);
+			if (item?.type === "image" && item.previewUrl.startsWith("blob:")) {
+				URL.revokeObjectURL(item.previewUrl);
+			}
+			return prev.filter(a => a.id !== id);
+		});
+	};
+
+	const canSend = connected && (text.trim().length > 0 || attachments.length > 0);
+
 	const usage = thread.state?.contextUsage;
 	const queued = thread.state?.queuedMessageCount ?? 0;
 
 	return (
-		<div className="cp">
+		<div
+			className={`cp${isDragging ? " is-dragging" : ""}`}
+			onDragEnter={onDragEnter}
+			onDragLeave={onDragLeave}
+			onDragOver={onDragOver}
+			onDrop={onDrop}
+		>
+			{isDragging && (
+				<div className="cp-drop-overlay">
+					<UploadCloud size={28} />
+					<span>拖放文件或图片到此处</span>
+				</div>
+			)}
+
+			{attachments.length > 0 && (
+				<div className="cp-attachments">
+					{attachments.map(att => (
+						<div key={att.id} className="cp-att-item">
+							{att.type === "image" ? (
+								<img src={att.previewUrl} alt={att.name} className="cp-att-thumb" />
+							) : (
+								<FileText size={14} className="cp-att-icon" />
+							)}
+							<span className="cp-att-name" title={att.type === "file" ? att.path : att.name}>
+								{att.type === "file" ? att.relativePath : att.name}
+							</span>
+							<button
+								type="button"
+								className="cp-att-remove"
+								title="移除"
+								onClick={() => removeAttachment(att.id)}
+							>
+								<X size={11} />
+							</button>
+						</div>
+					))}
+				</div>
+			)}
+
 			<textarea
 				ref={inputRef}
 				className="cp-input"
 				rows={1}
 				value={text}
 				placeholder={
-					!connected ? "正在连接 omp…" : thread.working ? "补充说明，将在当前步骤后处理" : "输入消息，Enter 发送，Shift+Enter 换行"
+					!connected
+						? "正在连接 omp…"
+						: thread.working
+							? "补充说明，将在当前步骤后处理"
+							: "输入消息，Enter 发送，Shift+Enter 换行，支持拖拽文件/图片"
 				}
 				disabled={!connected}
 				onChange={e => setText(e.target.value)}
 				onKeyDown={onKeyDown}
+				onPaste={onPaste}
 			/>
 			<div className="cp-bar">
+				<button
+					type="button"
+					className="cp-attach-btn"
+					title="添加文件或图片"
+					disabled={!connected}
+					onClick={() => fileInputRef.current?.click()}
+				>
+					<Paperclip size={14} />
+				</button>
+				<input
+					ref={fileInputRef}
+					type="file"
+					multiple
+					style={{ display: "none" }}
+					onChange={async e => {
+						if (e.target.files && e.target.files.length > 0) {
+							const newAtts = await processDroppedFiles(e.target.files, thread.cwd);
+							if (newAtts.length > 0) {
+								setAttachments(prev => [...prev, ...newAtts]);
+							}
+							e.target.value = "";
+						}
+					}}
+				/>
 				<ModelPicker thread={thread} />
 				<ThinkingPicker thread={thread} />
 				<ApprovalModePicker thread={thread} />
@@ -90,12 +328,12 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 						上下文 {Math.round(usage.percent)}%
 					</span>
 				)}
-				{thread.working && !text.trim() ? (
+				{thread.working && !text.trim() && attachments.length === 0 ? (
 					<button type="button" className="cp-send is-stop" title="停止" onClick={() => void abort(thread.key)}>
 						<Square size={12} fill="currentColor" />
 					</button>
 				) : (
-					<button type="button" className="cp-send" title="发送" disabled={!connected || !text.trim()} onClick={submit}>
+					<button type="button" className="cp-send" title="发送" disabled={!canSend} onClick={submit}>
 						<ArrowUp size={16} />
 					</button>
 				)}

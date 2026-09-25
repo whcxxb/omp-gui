@@ -654,6 +654,7 @@
 }
 
 .cp {
+	position: relative;
 	display: flex;
 	flex-direction: column;
 	border: 1px solid var(--border-strong);
@@ -662,6 +663,112 @@
 	transition: border-color 120ms ease;
 }
 
+.cp.is-dragging {
+	border-color: var(--accent);
+}
+
+.cp-drop-overlay {
+	position: absolute;
+	inset: 0;
+	z-index: 10;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	border: 2px dashed var(--accent);
+	border-radius: var(--radius-lg);
+	background: var(--bg-overlay);
+	color: var(--accent);
+	font-size: 13px;
+	font-weight: 500;
+	pointer-events: none;
+}
+
+.cp-attachments {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	padding: 10px 12px 2px;
+}
+
+.cp-att-item {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	max-width: 240px;
+	height: 28px;
+	padding: 2px 6px;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius);
+	background: var(--bg-inset);
+	font-size: 12px;
+	color: var(--fg);
+}
+
+.cp-att-thumb {
+	width: 22px;
+	height: 22px;
+	object-fit: cover;
+	border-radius: var(--radius-sm);
+}
+
+.cp-att-icon {
+	color: var(--fg-muted);
+	flex: none;
+}
+
+.cp-att-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	flex: 1;
+	min-width: 0;
+	font-family: var(--font-mono);
+	font-size: 11px;
+}
+
+.cp-att-remove {
+	display: grid;
+	place-items: center;
+	width: 16px;
+	height: 16px;
+	padding: 0;
+	border: 0;
+	border-radius: 50%;
+	background: transparent;
+	color: var(--fg-faint);
+	cursor: pointer;
+}
+
+.cp-att-remove:hover {
+	background: var(--bg-hover);
+	color: var(--fg);
+}
+
+.cp-attach-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: var(--fg-muted);
+	cursor: pointer;
+}
+
+.cp-attach-btn:hover:not(:disabled) {
+	background: var(--bg-hover);
+	color: var(--fg);
+}
+
+.cp-attach-btn:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
 .cp:focus-within {
 	border-color: var(--ring);
 }

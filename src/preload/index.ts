@@ -1,5 +1,5 @@
 import type { OmpApi, RuntimeMessage } from "@shared/ipc";
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 
 const api: OmpApi = {
 	listProjects: () => ipcRenderer.invoke("omp:list-projects"),
@@ -12,6 +12,13 @@ const api: OmpApi = {
 	ompVersion: () => ipcRenderer.invoke("omp:version"),
 	defaultApprovalMode: () => ipcRenderer.invoke("omp:default-approval-mode"),
 	setDefaultApprovalMode: mode => ipcRenderer.invoke("omp:set-default-approval-mode", mode),
+	getPathForFile: file => {
+		try {
+			return webUtils.getPathForFile(file);
+		} catch {
+			return "";
+		}
+	},
 	revealPath: path => ipcRenderer.invoke("omp:reveal", path),
 	onRuntime(listener) {
 		const handler = (_e: unknown, runtimeId: string, message: RuntimeMessage) => listener(runtimeId, message);

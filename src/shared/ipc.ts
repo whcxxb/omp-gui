@@ -57,6 +57,7 @@ export interface OmpApi {
 	defaultApprovalMode(): Promise<ApprovalMode>;
 	setDefaultApprovalMode(mode: ApprovalMode): Promise<void>;
 	revealPath(path: string): Promise<void>;
+	getPathForFile(file: File): string;
 	onRuntime(listener: (runtimeId: string, message: RuntimeMessage) => void): () => void;
 	onProjectsChanged(listener: () => void): () => void;
 }
