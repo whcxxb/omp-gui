@@ -1,6 +1,9 @@
 allowBuilds:
   esbuild: true
   electron: true
+  electron-winstaller: false
 minimumReleaseAgeExclude:
   - katex@0.18.9
   - lucide-react@1.48.0
+overrides:
+  "@electron/get": "5.1.0"

@@ -1,4 +1,4 @@
-import { watch } from "node:fs";
+import { existsSync, watch } from "node:fs";
 import { join } from "node:path";
 import type { ApprovalMode, OpenSessionOptions } from "@shared/ipc";
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from "electron";
@@ -21,6 +21,7 @@ function createWindow(): void {
 		show: false,
 		titleBarStyle: "hiddenInset",
 		trafficLightPosition: { x: 14, y: 14 },
+		icon: join(import.meta.dirname, "../../build/icon.png"),
 		backgroundColor: nativeTheme.shouldUseDarkColors ? "#17151a" : "#fbfbfc",
 		webPreferences: {
 			preload: join(import.meta.dirname, "../preload/index.cjs"),
@@ -105,6 +106,10 @@ function registerIpc(): void {
 
 app.whenReady().then(() => {
 	registerIpc();
+	if (process.platform === "darwin" && app.dock) {
+		const iconPath = join(import.meta.dirname, "../../build/icon.png");
+		if (existsSync(iconPath)) app.dock.setIcon(iconPath);
+	}
 	createWindow();
 	watchSessions();
 	app.on("activate", () => {
