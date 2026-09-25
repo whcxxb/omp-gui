@@ -3,7 +3,7 @@ import { useSyncExternalStore } from "react";
 import type { RuntimeMessage } from "@shared/ipc";
 import type { ActiveTool } from "@/collab/lib/client";
 import type { AssistantMessage, ImageContent, SessionEntry, WireMessage } from "@/collab/wire/index";
-import type { ApprovalMode, Notice, SessionStateSnapshot, SlashCommand, Thread, UiRequest } from "./types";
+import type { ApprovalMode, Notice, SessionStateSnapshot, Thread, UiRequest } from "./types";
 
 const MAX_NOTICES = 20;
 
@@ -107,20 +107,6 @@ async function loadEntries(key: string): Promise<void> {
 	});
 	update(key, () => ({ entries: currentBranch(data.entries, data.leafId) }));
 }
-async function loadCommands(key: string): Promise<void> {
-	const thread = getThread(key);
-	if (!thread?.runtimeId) return;
-	try {
-		const data = await window.omp.request<{ commands: SlashCommand[] }>(thread.runtimeId, {
-			type: "get_available_commands",
-		});
-		if (Array.isArray(data?.commands)) {
-			update(key, () => ({ availableCommands: data.commands }));
-		}
-	} catch {
-		// 忽略
-	}
-}
 
 
 /** 为线程启动（或重启）omp 进程。 */
@@ -135,11 +121,7 @@ async function attach(key: string): Promise<void> {
 			approvalMode: thread.approvalMode,
 		});
 		update(key, () => ({ runtimeId: info.runtimeId, status: "ready" }));
-		await Promise.all([
-			refreshState(key),
-			thread.sessionFile ? loadEntries(key) : Promise.resolve(),
-			loadCommands(key),
-		]);
+		await Promise.all([refreshState(key), thread.sessionFile ? loadEntries(key) : Promise.resolve()]);
 	} catch (error) {
 		update(key, () => ({ status: "error", error: error instanceof Error ? error.message : String(error) }));
 	}
@@ -159,7 +141,6 @@ function blankThread(cwd: string, sessionFile?: string, approvalMode: ApprovalMo
 		activeTools: new Map(),
 		working: false,
 		state: null,
-		availableCommands: [],
 		uiRequests: [],
 		notices: [],
 	};
@@ -299,8 +280,6 @@ function applyFrame(thread: Thread, frame: Frame): Partial<Thread> | null {
 		case "model_changed":
 			void refreshState(thread.key);
 			return null;
-		case "available_commands_update":
-			return { availableCommands: (frame.commands as SlashCommand[]) ?? [] };
 		case "command_output":
 			return pushNotice(thread, "info", String(frame.text ?? ""));
 		case "response":
