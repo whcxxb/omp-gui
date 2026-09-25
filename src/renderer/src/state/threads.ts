@@ -3,7 +3,15 @@ import { useSyncExternalStore } from "react";
 import type { RuntimeMessage } from "@shared/ipc";
 import type { ActiveTool } from "@/collab/lib/client";
 import type { AssistantMessage, ImageContent, SessionEntry, WireMessage } from "@/collab/wire/index";
-import type { ApprovalMode, Notice, SessionStateSnapshot, Thread, UiRequest } from "./types";
+import type {
+	ApprovalMode,
+	Notice,
+	SessionStateSnapshot,
+	SubagentProgress,
+	SubagentSnapshot,
+	Thread,
+	UiRequest,
+} from "./types";
 
 const MAX_NOTICES = 20;
 
@@ -107,6 +115,25 @@ async function loadEntries(key: string): Promise<void> {
 	});
 	update(key, () => ({ entries: currentBranch(data.entries, data.leafId) }));
 }
+async function initSubagents(key: string): Promise<void> {
+	const thread = getThread(key);
+	if (!thread?.runtimeId) return;
+	try {
+		await window.omp.request(thread.runtimeId, {
+			type: "set_subagent_subscription",
+			level: "events",
+		});
+		const data = await window.omp.request<{ subagents: SubagentSnapshot[] }>(thread.runtimeId, {
+			type: "get_subagents",
+		});
+		if (Array.isArray(data?.subagents)) {
+			update(key, () => ({ subagents: data.subagents }));
+		}
+	} catch {
+		// 忽略初始化失败
+	}
+}
+
 
 
 /** 为线程启动（或重启）omp 进程。 */
@@ -121,7 +148,11 @@ async function attach(key: string): Promise<void> {
 			approvalMode: thread.approvalMode,
 		});
 		update(key, () => ({ runtimeId: info.runtimeId, status: "ready" }));
-		await Promise.all([refreshState(key), thread.sessionFile ? loadEntries(key) : Promise.resolve()]);
+		await Promise.all([
+			refreshState(key),
+			thread.sessionFile ? loadEntries(key) : Promise.resolve(),
+			initSubagents(key),
+		]);
 	} catch (error) {
 		update(key, () => ({ status: "error", error: error instanceof Error ? error.message : String(error) }));
 	}
@@ -141,6 +172,9 @@ function blankThread(cwd: string, sessionFile?: string, approvalMode: ApprovalMo
 		activeTools: new Map(),
 		working: false,
 		state: null,
+		subagents: [],
+		activeSubagentId: null,
+		isSubagentPanelOpen: false,
 		uiRequests: [],
 		notices: [],
 	};
@@ -280,6 +314,74 @@ function applyFrame(thread: Thread, frame: Frame): Partial<Thread> | null {
 		case "model_changed":
 			void refreshState(thread.key);
 			return null;
+		case "subagent_lifecycle": {
+			const p = frame.payload as Record<string, unknown> | undefined;
+			if (!p || typeof p.id !== "string") return null;
+			const id = p.id;
+			const existingIdx = thread.subagents.findIndex(s => s.id === id);
+			const status = (p.status as SubagentSnapshot["status"]) ?? "running";
+			const sub: SubagentSnapshot = existingIdx !== -1
+				? {
+						...thread.subagents[existingIdx]!,
+						status,
+						description: (p.description as string) || thread.subagents[existingIdx]!.description,
+						sessionFile: (p.sessionFile as string) || thread.subagents[existingIdx]!.sessionFile,
+						error: (p.error as string) || thread.subagents[existingIdx]!.error,
+						lastUpdate: Date.now(),
+					}
+				: {
+						id,
+						index: typeof p.index === "number" ? p.index : thread.subagents.length,
+						agent: (p.agent as string) || "task",
+						agentSource: p.agentSource as string | undefined,
+						description: p.description as string | undefined,
+						status,
+						sessionFile: p.sessionFile as string | undefined,
+						lastUpdate: Date.now(),
+						error: p.error as string | undefined,
+					};
+			const next = existingIdx !== -1
+				? thread.subagents.map((s, i) => (i === existingIdx ? sub : s))
+				: [...thread.subagents, sub];
+			return {
+				subagents: next,
+				isSubagentPanelOpen: thread.isSubagentPanelOpen || status === "started" || status === "running",
+			};
+		}
+		case "subagent_progress": {
+			const p = frame.payload as Record<string, unknown> | undefined;
+			const prog = p?.progress as Record<string, unknown> | undefined;
+			if (!prog || typeof prog.id !== "string") return null;
+			const id = prog.id;
+			const existingIdx = thread.subagents.findIndex(s => s.id === id);
+			if (existingIdx === -1) return null;
+			const existing = thread.subagents[existingIdx]!;
+			const subProg: SubagentProgress = {
+				id,
+				status: (prog.status as SubagentProgress["status"]) || existing.status,
+				task: (prog.task as string) || existing.task,
+				description: (prog.description as string) || existing.description,
+				currentTool: prog.currentTool as string | undefined,
+				currentToolStartMs: typeof prog.currentToolStartMs === "number" ? prog.currentToolStartMs : undefined,
+				lastIntent: prog.lastIntent as string | undefined,
+				toolCount: typeof prog.toolCount === "number" ? prog.toolCount : 0,
+				requests: typeof prog.requests === "number" ? prog.requests : 0,
+				tokens: typeof prog.tokens === "number" ? prog.tokens : 0,
+				cost: typeof prog.cost === "number" ? prog.cost : 0,
+				durationMs: typeof prog.durationMs === "number" ? prog.durationMs : 0,
+			};
+			const sub: SubagentSnapshot = {
+				...existing,
+				status: (prog.status as SubagentSnapshot["status"]) || existing.status,
+				task: (p?.task as string) || (prog.task as string) || existing.task,
+				assignment: (p?.assignment as string) || existing.assignment,
+				lastUpdate: Date.now(),
+				progress: subProg,
+			};
+			return {
+				subagents: thread.subagents.map((s, i) => (i === existingIdx ? sub : s)),
+			};
+		}
 		case "command_output":
 			return pushNotice(thread, "info", String(frame.text ?? ""));
 		case "response":
@@ -366,6 +468,18 @@ export async function setApprovalMode(key: string, mode: ApprovalMode): Promise<
 		}
 	}
 	void attach(key);
+}
+
+export function toggleSubagentPanel(key: string): void {
+	update(key, t => ({ isSubagentPanelOpen: !t.isSubagentPanelOpen }));
+}
+
+export function setSubagentPanelOpen(key: string, open: boolean): void {
+	update(key, () => ({ isSubagentPanelOpen: open }));
+}
+
+export function setActiveSubagent(key: string, id: string | null): void {
+	update(key, () => ({ activeSubagentId: id }));
 }
 
 export function setDefaultApprovalMode(mode: ApprovalMode): void {

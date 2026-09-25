@@ -96,7 +96,22 @@ async function run() {
 		await evalJs('document.querySelector(".cp-att-remove")?.click()');
 		await new Promise(r => setTimeout(r, 200));
 
-		console.log("5. 冒烟测试全部通过！");
+		console.log("5. 测试子任务看板展开与收起...");
+		const subBtn = await evalJs('!!document.querySelector(".mh-subagent-btn")');
+		if (!subBtn) throw new Error("未找到子任务看板按钮 .mh-subagent-btn");
+		await evalJs('document.querySelector(".mh-subagent-btn").click()');
+		await new Promise(r => setTimeout(r, 200));
+		const panelOpen = await evalJs('!!document.querySelector(".sub-panel")');
+		if (!panelOpen) throw new Error("子任务看板未能成功展开 .sub-panel");
+		console.log("   子任务看板展开成功");
+
+		await evalJs('document.querySelector(".sub-close-btn").click()');
+		await new Promise(r => setTimeout(r, 200));
+		const panelClosed = await evalJs('!document.querySelector(".sub-panel")');
+		if (!panelClosed) throw new Error("子任务看板关闭失败");
+		console.log("   子任务看板关闭成功");
+
+		console.log("6. 冒烟测试全部通过！");
 		ws.close();
 	} finally {
 		electron.kill();

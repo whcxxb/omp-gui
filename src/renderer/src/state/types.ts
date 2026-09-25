@@ -16,6 +16,39 @@ export interface ContextUsage {
 	contextWindow: number | null;
 	percent: number | null;
 }
+export interface SubagentProgress {
+	id: string;
+	status: "running" | "completed" | "failed" | "aborted";
+	task?: string;
+	assignment?: string;
+	description?: string;
+	recentTools?: Array<{ name: string; endMs?: number }>;
+	currentTool?: string;
+	currentToolStartMs?: number;
+	lastIntent?: string;
+	toolCount: number;
+	requests: number;
+	tokens: number;
+	cost: number;
+	durationMs: number;
+}
+
+export interface SubagentSnapshot {
+	id: string;
+	index: number;
+	agent: string;
+	agentSource?: string;
+	description?: string;
+	status: "started" | "running" | "completed" | "failed" | "aborted";
+	task?: string;
+	assignment?: string;
+	sessionFile?: string;
+	lastUpdate: number;
+	progress?: SubagentProgress;
+	parentToolCallId?: string;
+	error?: string;
+}
+
 
 /** get_state 的子集 */
 export interface SessionStateSnapshot {
@@ -58,6 +91,9 @@ export interface Thread {
 	activeTools: ReadonlyMap<string, ActiveTool>;
 	working: boolean;
 	state: SessionStateSnapshot | null;
+	subagents: SubagentSnapshot[];
+	activeSubagentId: string | null;
+	isSubagentPanelOpen: boolean;
 	uiRequests: UiRequest[];
 	notices: Notice[];
 }

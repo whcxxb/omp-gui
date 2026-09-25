@@ -1,9 +1,10 @@
-import { FolderOpen, FolderPlus, RotateCw, Shield, ShieldAlert, ShieldCheck, X } from "lucide-react";
+import { FolderOpen, FolderPlus, RotateCw, Shield, ShieldAlert, ShieldCheck, Workflow, X } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import type { ProjectSummary, SessionSummary } from "@shared/ipc";
 import { APPROVAL_CONFIG, Composer } from "./components/Composer";
 import { Sidebar } from "./components/Sidebar";
 import { ThreadView } from "./components/ThreadView";
+import { SubagentPanel } from "./components/SubagentPanel";
 import { UiRequestCard } from "./components/UiRequestCard";
 import { shortPath } from "./lib/time";
 import {
@@ -13,6 +14,7 @@ import {
 	handleRuntimeMessage,
 	openThread,
 	reconnect,
+	toggleSubagentPanel,
 	useThreads,
 } from "./state/threads";
 import type { Thread } from "./state/types";
@@ -145,6 +147,20 @@ function ThreadPane({ thread }: { thread: Thread }): ReactNode {
 				})()}
 				<button
 					type="button"
+					className={`mh-subagent-btn${thread.isSubagentPanelOpen ? " is-active" : ""}`}
+					title={thread.isSubagentPanelOpen ? "收起子任务看板" : "展开子任务看板"}
+					onClick={() => toggleSubagentPanel(thread.key)}
+				>
+					<Workflow size={13} />
+					<span>子任务</span>
+					{thread.subagents && thread.subagents.length > 0 && (
+						<span className="mh-subagent-badge">
+							{thread.subagents.filter(s => s.status === "started" || s.status === "running").length || thread.subagents.length}
+						</span>
+					)}
+				</button>
+				<button
+					type="button"
 					className="mh-path"
 					title="在访达中显示"
 					onClick={() => void window.omp.revealPath(thread.cwd)}
@@ -153,6 +169,9 @@ function ThreadPane({ thread }: { thread: Thread }): ReactNode {
 					<span>{shortPath(thread.cwd)}</span>
 				</button>
 			</header>
+
+			<div className="thread-stage">
+				<div className="thread-content">
 
 			{thread.notices.length > 0 && (
 				<div className="nt">
@@ -190,6 +209,9 @@ function ThreadPane({ thread }: { thread: Thread }): ReactNode {
 					<UiRequestCard key={request.id} threadKey={thread.key} request={request} />
 				))}
 				<Composer thread={thread} autoFocus />
+			</div>
+				</div>
+				{thread.isSubagentPanelOpen && <SubagentPanel thread={thread} />}
 			</div>
 		</>
 	);
