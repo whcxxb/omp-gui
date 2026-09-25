@@ -1,0 +1,6 @@
+allowBuilds:
+  esbuild: true
+  electron: true
+minimumReleaseAgeExclude:
+  - katex@0.18.9
+  - lucide-react@1.48.0

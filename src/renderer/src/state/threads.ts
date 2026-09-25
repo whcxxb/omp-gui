@@ -1,0 +1,341 @@
+// 对话线程状态：把 omp RPC 事件归并成可渲染的会话数据。
+import { useSyncExternalStore } from "react";
+import type { RuntimeMessage } from "@shared/ipc";
+import type { ActiveTool } from "@/collab/lib/client";
+import type { AssistantMessage, SessionEntry, WireMessage } from "@/collab/wire/index";
+import type { Notice, SessionStateSnapshot, Thread, UiRequest } from "./types";
+
+const MAX_NOTICES = 20;
+
+type Frame = Record<string, unknown>;
+
+let threads: Thread[] = [];
+const listeners = new Set<() => void>();
+let entrySeq = 0;
+let noticeSeq = 0;
+
+function commit(): void {
+	threads = [...threads];
+	for (const listener of listeners) listener();
+}
+
+function update(key: string, patch: (thread: Thread) => Partial<Thread>): void {
+	const index = threads.findIndex(t => t.key === key);
+	if (index === -1) return;
+	const current = threads[index]!;
+	threads[index] = { ...current, ...patch(current) };
+	commit();
+}
+
+function byRuntime(runtimeId: string): Thread | undefined {
+	return threads.find(t => t.runtimeId === runtimeId);
+}
+
+export function getThread(key: string): Thread | undefined {
+	return threads.find(t => t.key === key);
+}
+
+export function findThreadByFile(file: string): Thread | undefined {
+	return threads.find(t => t.sessionFile === file);
+}
+
+export function useThreads(): Thread[] {
+	return useSyncExternalStore(
+		listener => {
+			listeners.add(listener);
+			return () => listeners.delete(listener);
+		},
+		() => threads,
+	);
+}
+
+function pushNotice(thread: Thread, level: Notice["level"], message: string): Partial<Thread> {
+	const notices = [...thread.notices, { id: ++noticeSeq, level, message }];
+	return { notices: notices.slice(-MAX_NOTICES) };
+}
+
+export function dismissNotice(key: string, id: number): void {
+	update(key, t => ({ notices: t.notices.filter(n => n.id !== id) }));
+}
+
+/** 从 get_entries 的结果中取出当前分支（leaf 回溯到根）。 */
+function currentBranch(entries: SessionEntry[], leafId: string | null): SessionEntry[] {
+	if (!leafId) return entries;
+	const byId = new Map(entries.map(e => [e.id, e]));
+	const branch: SessionEntry[] = [];
+	let cursor = byId.get(leafId);
+	while (cursor) {
+		branch.push(cursor);
+		cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined;
+	}
+	return branch.reverse();
+}
+
+function messageEntry(message: WireMessage, parent: SessionEntry | undefined): SessionEntry {
+	return {
+		type: "message",
+		id: `live-${++entrySeq}`,
+		parentId: parent?.id ?? null,
+		timestamp: new Date(message.timestamp ?? Date.now()).toISOString(),
+		message,
+	};
+}
+
+async function refreshState(key: string): Promise<void> {
+	const thread = getThread(key);
+	if (!thread?.runtimeId) return;
+	try {
+		const state = await window.omp.request<SessionStateSnapshot>(thread.runtimeId, { type: "get_state" });
+		update(key, () => ({ state, sessionFile: state.sessionFile ?? thread.sessionFile }));
+	} catch {
+		// 进程退出时忽略
+	}
+}
+
+async function loadEntries(key: string): Promise<void> {
+	const thread = getThread(key);
+	if (!thread?.runtimeId) return;
+	const data = await window.omp.request<{ entries: SessionEntry[]; leafId: string | null }>(thread.runtimeId, {
+		type: "get_entries",
+	});
+	update(key, () => ({ entries: currentBranch(data.entries, data.leafId) }));
+}
+
+/** 为线程启动（或重启）omp 进程。 */
+async function attach(key: string): Promise<void> {
+	const thread = getThread(key);
+	if (!thread) return;
+	update(key, () => ({ status: "starting", error: undefined }));
+	try {
+		const info = await window.omp.openSession({ cwd: thread.cwd, sessionFile: thread.sessionFile });
+		update(key, () => ({ runtimeId: info.runtimeId, status: "ready" }));
+		await Promise.all([refreshState(key), thread.sessionFile ? loadEntries(key) : Promise.resolve()]);
+	} catch (error) {
+		update(key, () => ({ status: "error", error: error instanceof Error ? error.message : String(error) }));
+	}
+}
+
+function blankThread(cwd: string, sessionFile?: string): Thread {
+	return {
+		key: crypto.randomUUID(),
+		runtimeId: null,
+		cwd,
+		sessionFile,
+		status: "starting",
+		entries: [],
+		stream: null,
+		streamDone: false,
+		activeTools: new Map(),
+		working: false,
+		state: null,
+		uiRequests: [],
+		notices: [],
+	};
+}
+
+export function createThread(cwd: string): string {
+	const thread = blankThread(cwd);
+	threads.push(thread);
+	commit();
+	void attach(thread.key);
+	return thread.key;
+}
+
+/** 打开历史会话；已打开的直接复用。 */
+export function openThread(cwd: string, sessionFile: string): string {
+	const existing = findThreadByFile(sessionFile);
+	if (existing) {
+		if (existing.status === "exited" || existing.status === "error") void attach(existing.key);
+		return existing.key;
+	}
+	const thread = blankThread(cwd, sessionFile);
+	threads.push(thread);
+	commit();
+	void attach(thread.key);
+	return thread.key;
+}
+
+export function reconnect(key: string): void {
+	void attach(key);
+}
+
+export async function closeThread(key: string): Promise<void> {
+	const thread = getThread(key);
+	if (!thread) return;
+	threads = threads.filter(t => t.key !== key);
+	commit();
+	if (thread.runtimeId) await window.omp.closeRuntime(thread.runtimeId);
+}
+
+/** 发送提示；执行中时作为排队的后续消息。 */
+export async function sendPrompt(key: string, message: string): Promise<void> {
+	const thread = getThread(key);
+	if (!thread?.runtimeId) return;
+	if (thread.status !== "ready") return;
+	const command: Frame = { type: "prompt", message };
+	if (thread.working) command.streamingBehavior = "followUp";
+	try {
+		await window.omp.request(thread.runtimeId, command);
+	} catch (error) {
+		update(key, t => pushNotice(t, "error", error instanceof Error ? error.message : String(error)));
+	}
+}
+
+export async function abort(key: string): Promise<void> {
+	const thread = getThread(key);
+	if (!thread?.runtimeId) return;
+	await window.omp.request(thread.runtimeId, { type: "abort" }).catch(() => undefined);
+}
+
+export async function runCommand<T>(key: string, command: Frame): Promise<T> {
+	const thread = getThread(key);
+	if (!thread?.runtimeId) throw new Error("会话未连接");
+	const result = await window.omp.request<T>(thread.runtimeId, command);
+	void refreshState(key);
+	return result;
+}
+
+export function answerUiRequest(key: string, id: string, response: Frame): void {
+	const thread = getThread(key);
+	if (!thread?.runtimeId) return;
+	void window.omp.send(thread.runtimeId, { type: "extension_ui_response", id, ...response });
+	update(key, t => ({ uiRequests: t.uiRequests.filter(r => r.id !== id) }));
+}
+
+function applyFrame(thread: Thread, frame: Frame): Partial<Thread> | null {
+	switch (frame.type) {
+		case "agent_start":
+			return { working: true };
+		case "agent_end":
+			void refreshState(thread.key);
+			return { working: false, activeTools: new Map() };
+		case "message_start":
+		case "message_update": {
+			const message = frame.message as WireMessage;
+			if (message.role !== "assistant") return null;
+			return { stream: message as AssistantMessage, streamDone: false };
+		}
+		case "message_end": {
+			const message = frame.message as WireMessage;
+			const entries = [...thread.entries, messageEntry(message, thread.entries.at(-1))];
+			if (message.role === "assistant") return { entries, stream: null, streamDone: false };
+			return { entries };
+		}
+		case "tool_execution_start": {
+			const tool: ActiveTool = {
+				toolCallId: String(frame.toolCallId),
+				toolName: String(frame.toolName),
+				args: frame.args,
+				intent: typeof frame.intent === "string" ? frame.intent : undefined,
+				startedAt: Date.now(),
+			};
+			return { activeTools: new Map(thread.activeTools).set(tool.toolCallId, tool) };
+		}
+		case "tool_execution_update": {
+			const id = String(frame.toolCallId);
+			const existing = thread.activeTools.get(id);
+			const tool: ActiveTool = existing
+				? { ...existing, partialResult: frame.partialResult }
+				: {
+						toolCallId: id,
+						toolName: String(frame.toolName),
+						args: frame.args,
+						partialResult: frame.partialResult,
+						startedAt: Date.now(),
+					};
+			return { activeTools: new Map(thread.activeTools).set(id, tool) };
+		}
+		case "tool_execution_end": {
+			const next = new Map(thread.activeTools);
+			next.delete(String(frame.toolCallId));
+			return { activeTools: next };
+		}
+		case "notice":
+			return pushNotice(thread, (frame.level as Notice["level"]) ?? "info", String(frame.message ?? ""));
+		case "auto_retry_start":
+			return pushNotice(thread, "info", `正在重试（${frame.attempt}/${frame.maxAttempts}）：${frame.errorMessage}`);
+		case "auto_retry_end":
+			return frame.success ? null : pushNotice(thread, "error", String(frame.finalError ?? "重试失败"));
+		case "auto_compaction_start":
+			return pushNotice(thread, "info", "正在压缩上下文");
+		case "auto_compaction_end":
+			void loadEntries(thread.key).catch(() => undefined);
+			return null;
+		case "session_info_update":
+		case "config_update":
+		case "model_changed":
+			void refreshState(thread.key);
+			return null;
+		case "command_output":
+			return pushNotice(thread, "info", String(frame.text ?? ""));
+		case "response":
+			// 已确认后异步失败的命令
+			return frame.success === false ? pushNotice(thread, "error", String(frame.error ?? "命令失败")) : null;
+		case "extension_ui_request":
+			return applyUiRequest(thread, frame);
+		default:
+			return null;
+	}
+}
+
+function applyUiRequest(thread: Thread, frame: Frame): Partial<Thread> | null {
+	const id = String(frame.id);
+	switch (frame.method) {
+		case "select":
+		case "confirm":
+		case "input":
+		case "editor":
+			return { uiRequests: [...thread.uiRequests, frame as unknown as UiRequest] };
+		case "cancel":
+			return { uiRequests: thread.uiRequests.filter(r => r.id !== frame.targetId) };
+		case "notify":
+			return pushNotice(thread, (frame.notifyType as Notice["level"]) ?? "info", String(frame.message ?? ""));
+		case "setTitle":
+			void refreshState(thread.key);
+			return null;
+		case "open_url":
+			if (typeof frame.url === "string") window.open(frame.url, "_blank");
+			return null;
+		default:
+			// setStatus / setWidget / set_editor_text 暂不展示
+			void id;
+			return null;
+	}
+}
+
+export function handleRuntimeMessage(runtimeId: string, message: RuntimeMessage): void {
+	const thread = byRuntime(runtimeId);
+	if (!thread) return;
+	switch (message.kind) {
+		case "frame": {
+			const patch = applyFrame(thread, message.frame);
+			if (patch) update(thread.key, () => patch);
+			return;
+		}
+		case "exit":
+			update(thread.key, t => ({
+				runtimeId: null,
+				status: "exited",
+				working: false,
+				stream: null,
+				activeTools: new Map(),
+				uiRequests: [],
+				error:
+					message.signal === "evicted" ? undefined : `omp 进程已退出（${message.code ?? message.signal ?? "未知原因"}）`,
+				sessionFile: t.sessionFile ?? t.state?.sessionFile,
+			}));
+			return;
+		case "stderr":
+			return;
+	}
+}
+
+export function setModel(key: string, model: { provider: string; id: string }): Promise<unknown> {
+	return runCommand(key, { type: "set_model", provider: model.provider, modelId: model.id });
+}
+
+export function setThinkingLevel(key: string, level: string): Promise<unknown> {
+	return runCommand(key, { type: "set_thinking_level", level });
+}
+
+export type { SessionStateSnapshot };

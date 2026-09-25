@@ -1,0 +1,84 @@
+/* 设计 token：界面中唯一允许出现原始色值的文件。
+ * 变量名与上游 collab-web 保持一致，工具卡片与 Markdown 样式直接复用。
+ * 中性灰阶为主，单一强调色只用于焦点与链接。 */
+:root {
+	color-scheme: dark;
+
+	--bg: oklch(0.185 0.004 260);
+	--bg-sidebar: oklch(0.16 0.004 260);
+	--bg-raised: oklch(0.225 0.005 260);
+	--bg-inset: oklch(0.155 0.004 260);
+	--bg-overlay: oklch(0.245 0.005 260);
+	--bg-hover: oklch(1 0 0 / 5%);
+	--bg-active: oklch(1 0 0 / 8%);
+
+	--fg: oklch(0.94 0.003 260);
+	--fg-muted: oklch(0.72 0.006 260);
+	--fg-faint: oklch(0.55 0.008 260);
+
+	--accent: oklch(0.72 0.12 245);
+	--accent-fg: oklch(0.18 0.03 245);
+	--accent-muted: oklch(0.72 0.12 245 / 18%);
+
+	/* 主按钮：前景/背景反相 */
+	--btn-primary-bg: oklch(0.94 0.003 260);
+	--btn-primary-fg: oklch(0.2 0.004 260);
+
+	--ok: oklch(0.76 0.14 150);
+	--warn: oklch(0.8 0.13 85);
+	--err: oklch(0.68 0.18 25);
+
+	--border: oklch(1 0 0 / 8%);
+	--border-strong: oklch(1 0 0 / 14%);
+	--ring: oklch(0.72 0.12 245 / 65%);
+
+	--font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Segoe UI", sans-serif;
+	--font-mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+
+	--radius-sm: 4px;
+	--radius: 6px;
+	--radius-lg: 8px;
+
+	--shadow-overlay: 0 16px 40px oklch(0 0 0 / 45%), 0 2px 8px oklch(0 0 0 / 30%);
+	--backdrop: oklch(0.1 0.004 260 / 55%);
+
+	--sidebar-width: 272px;
+	--thread-width: 760px;
+	--titlebar-height: 44px;
+}
+
+@media (prefers-color-scheme: light) {
+	:root {
+		color-scheme: light;
+
+		--bg: oklch(0.995 0 0);
+		--bg-sidebar: oklch(0.97 0.002 260);
+		--bg-raised: oklch(1 0 0);
+		--bg-inset: oklch(0.965 0.002 260);
+		--bg-overlay: oklch(1 0 0);
+		--bg-hover: oklch(0 0 0 / 4%);
+		--bg-active: oklch(0 0 0 / 7%);
+
+		--fg: oklch(0.22 0.004 260);
+		--fg-muted: oklch(0.45 0.006 260);
+		--fg-faint: oklch(0.6 0.006 260);
+
+		--accent: oklch(0.55 0.15 250);
+		--accent-fg: oklch(0.99 0 0);
+		--accent-muted: oklch(0.55 0.15 250 / 12%);
+
+		--btn-primary-bg: oklch(0.22 0.004 260);
+		--btn-primary-fg: oklch(0.99 0 0);
+
+		--ok: oklch(0.55 0.13 150);
+		--warn: oklch(0.6 0.13 75);
+		--err: oklch(0.55 0.19 25);
+
+		--border: oklch(0 0 0 / 9%);
+		--border-strong: oklch(0 0 0 / 15%);
+		--ring: oklch(0.55 0.15 250 / 55%);
+
+		--shadow-overlay: 0 16px 40px oklch(0 0 0 / 12%), 0 2px 8px oklch(0 0 0 / 8%);
+		--backdrop: oklch(0.4 0.004 260 / 25%);
+	}
+}
