@@ -10,10 +10,22 @@ const ROOT = resolve(import.meta.dirname, "..");
 const DEST = join(ROOT, "src/renderer/src/collab");
 const REPO_URL = "https://github.com/can1357/oh-my-pi.git";
 
-let repo = process.argv[2] ? resolve(process.argv[2]) : null;
+let tag = null;
+let repo = null;
+for (let i = 2; i < process.argv.length; i++) {
+	if (process.argv[i] === "--tag" || process.argv[i] === "-t") {
+		tag = process.argv[++i];
+	} else if (!repo && !process.argv[i].startsWith("-")) {
+		repo = resolve(process.argv[i]);
+	}
+}
+
 if (!repo) {
 	repo = join(mkdtempSync(join(tmpdir(), "omp-src-")), "oh-my-pi");
-	execFileSync("git", ["clone", "--depth", "1", "-q", REPO_URL, repo], { stdio: "inherit" });
+	const cloneArgs = ["clone", "--depth", "1", "-q"];
+	if (tag) cloneArgs.push("--branch", tag);
+	cloneArgs.push(REPO_URL, repo);
+	execFileSync("git", cloneArgs, { stdio: "inherit" });
 }
 const WEB = join(repo, "packages/collab-web/src");
 if (!existsSync(WEB)) throw new Error(`找不到 collab-web 源码：${WEB}`);
