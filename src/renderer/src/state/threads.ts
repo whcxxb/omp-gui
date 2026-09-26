@@ -387,6 +387,12 @@ function applyFrame(thread: Thread, frame: Frame): Partial<Thread> | null {
 		case "response":
 			// 已确认后异步失败的命令
 			return frame.success === false ? pushNotice(thread, "error", String(frame.error ?? "命令失败")) : null;
+		case "prompt_result": {
+			// omp >= 18.3.2：提示词终态帧，仅在出错时提示
+			if (frame.status !== "error") return null;
+			const error = frame.error as { message?: string } | undefined;
+			return pushNotice(thread, "error", String(error?.message ?? "请求失败"));
+		}
 		case "extension_ui_request":
 			return applyUiRequest(thread, frame);
 		default:
