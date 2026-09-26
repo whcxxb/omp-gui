@@ -2,7 +2,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { app } from "electron";
-import type { ApprovalMode } from "@shared/ipc";
+import type { ApprovalMode, Theme } from "@shared/ipc";
 
 interface StoreData {
 	/** 用户手动添加的项目 */
@@ -11,6 +11,8 @@ interface StoreData {
 	hidden: string[];
 	/** 默认审批模式 */
 	defaultApprovalMode?: ApprovalMode;
+	/** 配色主题，供创建窗口时决定底色 */
+	theme?: Theme;
 }
 
 const DEFAULTS: StoreData = { projects: [], hidden: [] };

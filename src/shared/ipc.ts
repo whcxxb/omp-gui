@@ -2,6 +2,9 @@
 
 export type ApprovalMode = "yolo" | "write" | "always-ask";
 
+/** 界面配色主题；明暗仍跟随系统 */
+export type Theme = "default" | "claude";
+
 export interface SessionSummary {
 	/** 会话文件绝对路径 */
 	file: string;
@@ -56,6 +59,8 @@ export interface OmpApi {
 	ompVersion(): Promise<string | null>;
 	defaultApprovalMode(): Promise<ApprovalMode>;
 	setDefaultApprovalMode(mode: ApprovalMode): Promise<void>;
+	/** 同步主题到主进程，用于窗口底色 */
+	setTheme(theme: Theme): Promise<void>;
 	revealPath(path: string): Promise<void>;
 	getPathForFile(file: File): string;
 	onRuntime(listener: (runtimeId: string, message: RuntimeMessage) => void): () => void;

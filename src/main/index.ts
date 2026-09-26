@@ -1,6 +1,6 @@
 import { existsSync, watch } from "node:fs";
 import { join } from "node:path";
-import type { ApprovalMode, OpenSessionOptions } from "@shared/ipc";
+import type { ApprovalMode, OpenSessionOptions, Theme } from "@shared/ipc";
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from "electron";
 import { detectDefaultApprovalMode, ompVersion, RuntimePool } from "./runtimes";
 import { groupProjects, scanSessions, sessionsDir } from "./sessions";
@@ -12,6 +12,17 @@ const pool = new RuntimePool((runtimeId, message) => {
 	win?.webContents.send("omp:runtime", runtimeId, message);
 });
 
+/** 与 tokens.css 的 --bg 保持一致，供窗口首次绘制使用。 */
+const WINDOW_BACKGROUND: Record<Theme, { dark: string; light: string }> = {
+	default: { dark: "#121314", light: "#fdfdfd" },
+	claude: { dark: "#252523", light: "#faf9f5" },
+};
+
+function windowBackground(): string {
+	const colors = WINDOW_BACKGROUND[readStore().theme ?? "default"] ?? WINDOW_BACKGROUND.default;
+	return nativeTheme.shouldUseDarkColors ? colors.dark : colors.light;
+}
+
 function createWindow(): void {
 	win = new BrowserWindow({
 		width: 1280,
@@ -22,7 +33,7 @@ function createWindow(): void {
 		titleBarStyle: "hiddenInset",
 		trafficLightPosition: { x: 14, y: 14 },
 		icon: join(import.meta.dirname, "../../build/icon.png"),
-		backgroundColor: nativeTheme.shouldUseDarkColors ? "#17151a" : "#fbfbfc",
+		backgroundColor: windowBackground(),
 		webPreferences: {
 			preload: join(import.meta.dirname, "../preload/index.cjs"),
 			sandbox: true,
@@ -71,6 +82,7 @@ function registerIpc(): void {
 		if (path) {
 			const store = readStore();
 			writeStore({
+				...store,
 				projects: [...new Set([path, ...store.projects])],
 				hidden: store.hidden.filter(p => p !== path),
 			});
@@ -79,7 +91,7 @@ function registerIpc(): void {
 	});
 	ipcMain.handle("omp:remove-project", (_e, path: string) => {
 		const store = readStore();
-		writeStore({ projects: store.projects.filter(p => p !== path), hidden: [...new Set([...store.hidden, path])] });
+		writeStore({ ...store, projects: store.projects.filter(p => p !== path), hidden: [...new Set([...store.hidden, path])] });
 	});
 	ipcMain.handle("omp:open-session", (_e, options: OpenSessionOptions) => {
 		const store = readStore();
@@ -101,6 +113,11 @@ function registerIpc(): void {
 		const store = readStore();
 		writeStore({ ...store, defaultApprovalMode: mode });
 	});
+	ipcMain.handle("omp:set-theme", (_e, theme: Theme) => {
+		const store = readStore();
+		if (store.theme !== theme) writeStore({ ...store, theme });
+		win?.setBackgroundColor(windowBackground());
+	});
 	ipcMain.handle("omp:reveal", (_e, path: string) => shell.showItemInFolder(path));
 }
 
@@ -112,6 +129,7 @@ app.whenReady().then(() => {
 	}
 	createWindow();
 	watchSessions();
+	nativeTheme.on("updated", () => win?.setBackgroundColor(windowBackground()));
 	app.on("activate", () => {
 		if (BrowserWindow.getAllWindows().length === 0) createWindow();
 	});

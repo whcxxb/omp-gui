@@ -1,6 +1,7 @@
 import { ChevronRight, Folder, FolderPlus, SquarePen, X } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import type { ProjectSummary, SessionSummary } from "@shared/ipc";
+import { THEMES, type Theme, applyTheme, loadTheme } from "@/lib/theme";
 import { relativeTime, shortPath } from "@/lib/time";
 import type { Thread } from "@/state/types";
 
@@ -170,8 +171,34 @@ export function Sidebar(props: SidebarProps): ReactNode {
 				})}
 			</nav>
 
-			<footer className="sb-footer">{ompVersion ?? "未检测到 omp"}</footer>
+			<footer className="sb-footer">
+				<span className="sb-version">{ompVersion ?? "未检测到 omp"}</span>
+				<ThemeSwitch />
+			</footer>
 		</aside>
+	);
+}
+
+function ThemeSwitch(): ReactNode {
+	const [theme, setTheme] = useState<Theme>(loadTheme);
+	return (
+		<div className="sb-theme" role="radiogroup" aria-label="配色主题">
+			{THEMES.map(t => (
+				<button
+					key={t.id}
+					type="button"
+					role="radio"
+					aria-checked={theme === t.id}
+					className={theme === t.id ? "is-active" : undefined}
+					onClick={() => {
+						applyTheme(t.id);
+						setTheme(t.id);
+					}}
+				>
+					{t.label}
+				</button>
+			))}
+		</div>
 	);
 }
 

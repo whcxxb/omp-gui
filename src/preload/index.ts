@@ -12,6 +12,7 @@ const api: OmpApi = {
 	ompVersion: () => ipcRenderer.invoke("omp:version"),
 	defaultApprovalMode: () => ipcRenderer.invoke("omp:default-approval-mode"),
 	setDefaultApprovalMode: mode => ipcRenderer.invoke("omp:set-default-approval-mode", mode),
+	setTheme: theme => ipcRenderer.invoke("omp:set-theme", theme),
 	getPathForFile: file => {
 		try {
 			return webUtils.getPathForFile(file);

@@ -293,12 +293,53 @@
 }
 
 .sb-footer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
 	flex: none;
-	padding: 10px 18px 12px;
+	padding: 8px 12px 10px 18px;
 	border-top: 1px solid var(--border);
 	color: var(--fg-faint);
 	font-family: var(--font-mono);
 	font-size: 11px;
+}
+
+.sb-version {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.sb-theme {
+	display: inline-flex;
+	flex: none;
+	padding: 2px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--bg-inset);
+	font-family: var(--font-ui);
+}
+
+.sb-theme button {
+	height: 20px;
+	padding: 0 8px;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: var(--fg-faint);
+	font-size: 11px;
+	transition: background-color 120ms ease, color 120ms ease;
+}
+
+.sb-theme button:hover {
+	color: var(--fg);
+}
+
+.sb-theme button.is-active {
+	background: var(--bg-active);
+	color: var(--fg);
 }
 
 /* ---------- 主区域 ---------- */

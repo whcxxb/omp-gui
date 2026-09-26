@@ -82,3 +82,56 @@
 		--backdrop: oklch(0.4 0.004 260 / 25%);
 	}
 }
+
+/* Claude 主题：暖灰底色与陶土橙强调色，明暗仍跟随系统。 */
+:root[data-theme="claude"] {
+	--bg: oklch(0.262 0.003 106);
+	--bg-sidebar: oklch(0.228 0.002 67);
+	--bg-raised: oklch(0.3 0.003 106);
+	--bg-inset: oklch(0.228 0.002 67);
+	--bg-overlay: oklch(0.31 0.003 106);
+	--bg-hover: oklch(0.98 0.005 95 / 5%);
+	--bg-active: oklch(0.98 0.005 95 / 9%);
+
+	--fg: oklch(0.97 0.006 95);
+	--fg-muted: oklch(0.8 0.012 95);
+	--fg-faint: oklch(0.66 0.012 95);
+
+	--accent: oklch(0.67 0.13 39);
+	--accent-fg: oklch(0.99 0.004 95);
+	--accent-muted: oklch(0.67 0.13 39 / 20%);
+	--btn-primary-bg: oklch(0.67 0.13 39);
+	--btn-primary-fg: oklch(0.99 0.004 95);
+
+	--border: oklch(0.98 0.005 95 / 9%);
+	--border-strong: oklch(0.98 0.005 95 / 15%);
+	--ring: oklch(0.67 0.13 39 / 60%);
+	--backdrop: oklch(0.12 0.003 67 / 55%);
+}
+
+@media (prefers-color-scheme: light) {
+	:root[data-theme="claude"] {
+		--bg: oklch(0.982 0.005 95);
+		--bg-sidebar: oklch(0.962 0.008 98);
+		--bg-raised: oklch(1 0 0);
+		--bg-inset: oklch(0.948 0.01 95);
+		--bg-overlay: oklch(1 0 0);
+		--bg-hover: oklch(0.19 0.002 106 / 4%);
+		--bg-active: oklch(0.19 0.002 106 / 8%);
+
+		--fg: oklch(0.19 0.002 106);
+		--fg-muted: oklch(0.4 0.006 95);
+		--fg-faint: oklch(0.54 0.008 95);
+
+		--accent: oklch(0.6 0.14 40);
+		--accent-fg: oklch(0.99 0.004 95);
+		--accent-muted: oklch(0.6 0.14 40 / 12%);
+		--btn-primary-bg: oklch(0.6 0.14 40);
+		--btn-primary-fg: oklch(0.99 0.004 95);
+
+		--border: oklch(0.19 0.002 106 / 9%);
+		--border-strong: oklch(0.19 0.002 106 / 15%);
+		--ring: oklch(0.6 0.14 40 / 55%);
+		--backdrop: oklch(0.3 0.003 106 / 25%);
+	}
+}
