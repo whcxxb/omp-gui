@@ -7,12 +7,22 @@ async function run() {
 	console.log("启动 Electron 测试实例 (CDP 端口", PORT, ")...");
 	const electron = spawn("npx", ["electron", ".", `--remote-debugging-port=${PORT}`], {
 		stdio: ["ignore", "pipe", "pipe"],
+		// 独立进程组：结束时连同 npx 拉起的 Electron 子进程一起清理
+		detached: true,
 	});
+	const exited = new Promise(r => electron.once("exit", r));
 
 	await new Promise(r => setTimeout(r, 2500));
 
 	try {
-		const list = await fetch(`http://127.0.0.1:${PORT}/json`).then(r => r.json());
+		let list;
+		for (let i = 0; i < 40 && !list; i++) {
+			list = await fetch(`http://127.0.0.1:${PORT}/json`)
+				.then(r => r.json())
+				.catch(() => null);
+			if (!list) await new Promise(r => setTimeout(r, 250));
+		}
+		if (!list) throw new Error("Electron CDP 端口未就绪");
 		const page = list.find(t => t.type === "page");
 		if (!page) throw new Error("未找到 Electron 渲染页面的 CDP 目标");
 
@@ -44,10 +54,9 @@ async function run() {
 		if (title !== "OMP") throw new Error(`页面标题不匹配: ${title}`);
 
 		console.log("2. 等待项目加载并打开会话...");
-		for (let i = 0; i < 30; i++) {
-			const ready = await evalJs(
-				'!!document.querySelector(".sb-thread") || !!Array.from(document.querySelectorAll("button")).find(b => b.textContent.includes("新对话"))',
-			);
+		// 顶部「新对话」按钮启动即存在，先等项目列表中的会话出现，避免在项目加载前误点
+		for (let i = 0; i < 50; i++) {
+			const ready = await evalJs('!!document.querySelector(".sb-thread")');
 			if (ready) break;
 			await new Promise(r => setTimeout(r, 200));
 		}
@@ -62,7 +71,7 @@ async function run() {
 		})()`);
 
 		let hasCp = false;
-		for (let i = 0; i < 30; i++) {
+		for (let i = 0; i < 75; i++) {
 			hasCp = await evalJs('!!document.querySelector(".cp")');
 			if (hasCp) break;
 			await new Promise(r => setTimeout(r, 200));
@@ -114,7 +123,10 @@ async function run() {
 		console.log("6. 冒烟测试全部通过！");
 		ws.close();
 	} finally {
-		electron.kill();
+		try {
+			process.kill(-electron.pid, "SIGTERM");
+		} catch {}
+		await Promise.race([exited, new Promise(r => setTimeout(r, 5000))]);
 	}
 }
 
