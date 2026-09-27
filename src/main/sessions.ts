@@ -1,8 +1,8 @@
 // 扫描 omp 会话目录，按项目（cwd）分组。
 import { existsSync } from "node:fs";
-import { open, readdir, stat } from "node:fs/promises";
+import { open, readdir, stat, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, resolve } from "node:path";
 import type { ProjectSummary, SessionSummary } from "@shared/ipc";
 
 const HEAD_BYTES = 64 * 1024;
@@ -109,4 +109,17 @@ export function groupProjects(sessions: SessionSummary[], extraPaths: string[], 
 	}
 	for (const project of map.values()) project.sessions.sort((a, b) => b.updatedAt - a.updatedAt);
 	return [...map.values()].filter(p => !hidden.has(p.path)).sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+export async function deleteSessionFile(file: string): Promise<boolean> {
+	const dir = resolve(sessionsDir());
+	const normalized = resolve(file);
+	if (!normalized.startsWith(dir)) {
+		throw new Error("非法会话路径");
+	}
+	if (existsSync(normalized)) {
+		await unlink(normalized);
+		return true;
+	}
+	return false;
 }

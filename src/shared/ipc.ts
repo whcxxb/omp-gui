@@ -52,6 +52,7 @@ export interface OmpApi {
 	listProjects(): Promise<ProjectSummary[]>;
 	pickProject(): Promise<string | null>;
 	removeProject(path: string): Promise<void>;
+	deleteSession(file: string): Promise<boolean>;
 	openSession(options: OpenSessionOptions): Promise<RuntimeInfo>;
 	closeRuntime(runtimeId: string): Promise<void>;
 	request<T = unknown>(runtimeId: string, command: Record<string, unknown>): Promise<T>;
@@ -59,6 +60,8 @@ export interface OmpApi {
 	ompVersion(): Promise<string | null>;
 	defaultApprovalMode(): Promise<ApprovalMode>;
 	setDefaultApprovalMode(mode: ApprovalMode): Promise<void>;
+	getOmpConfigs(): Promise<Record<string, unknown>>;
+	setOmpConfig(key: string, value: string): Promise<boolean>;
 	/** 同步主题到主进程，用于窗口底色 */
 	setTheme(theme: Theme): Promise<void>;
 	revealPath(path: string): Promise<void>;

@@ -5,6 +5,7 @@ const api: OmpApi = {
 	listProjects: () => ipcRenderer.invoke("omp:list-projects"),
 	pickProject: () => ipcRenderer.invoke("omp:pick-project"),
 	removeProject: path => ipcRenderer.invoke("omp:remove-project", path),
+	deleteSession: file => ipcRenderer.invoke("omp:delete-session", file),
 	openSession: options => ipcRenderer.invoke("omp:open-session", options),
 	closeRuntime: runtimeId => ipcRenderer.invoke("omp:close-runtime", runtimeId),
 	request: (runtimeId, command) => ipcRenderer.invoke("omp:request", runtimeId, command),
@@ -12,6 +13,8 @@ const api: OmpApi = {
 	ompVersion: () => ipcRenderer.invoke("omp:version"),
 	defaultApprovalMode: () => ipcRenderer.invoke("omp:default-approval-mode"),
 	setDefaultApprovalMode: mode => ipcRenderer.invoke("omp:set-default-approval-mode", mode),
+	getOmpConfigs: () => ipcRenderer.invoke("omp:get-configs"),
+	setOmpConfig: (key, value) => ipcRenderer.invoke("omp:set-config", key, value),
 	setTheme: theme => ipcRenderer.invoke("omp:set-theme", theme),
 	getPathForFile: file => {
 		try {

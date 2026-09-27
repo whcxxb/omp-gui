@@ -15,9 +15,10 @@ import {
 } from "lucide-react";
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import type { ImageContent } from "@/collab/wire/index";
-import { abort, runCommand, sendPrompt, setApprovalMode, setModel, setThinkingLevel } from "@/state/threads";
-import type { ApprovalMode, ModelInfo, Thread } from "@/state/types";
-
+import { playSound } from "@/lib/sound";
+import { abort, enqueuePrompt, removeQueuedPrompt, runCommand, sendPrompt, setApprovalMode, setModel, setThinkingLevel } from "@/state/threads";
+import type { ApprovalMode, ModelInfo, QueuedPrompt, Thread } from "@/state/types";
+import { QueuedPromptTray } from "./QueuedPromptTray";
 
 export type ComposerAttachment =
 	| {
@@ -90,6 +91,32 @@ async function processDroppedFiles(files: FileList | File[], cwd: string): Promi
 	}
 	return results;
 }
+const PROMPT_HISTORY_KEY = "omp:prompt-history";
+const MAX_HISTORY = 100;
+
+function loadPromptHistory(): string[] {
+	try {
+		const raw = localStorage.getItem(PROMPT_HISTORY_KEY);
+		return raw ? (JSON.parse(raw) as string[]) : [];
+	} catch {
+		return [];
+	}
+}
+
+function savePromptHistory(entry: string): void {
+	try {
+		const list = loadPromptHistory();
+		const trimmed = entry.trim();
+		if (!trimmed) return;
+		if (list[list.length - 1] === trimmed) return;
+		list.push(trimmed);
+		if (list.length > MAX_HISTORY) list.splice(0, list.length - MAX_HISTORY);
+		localStorage.setItem(PROMPT_HISTORY_KEY, JSON.stringify(list));
+	} catch {
+		// ignore storage quota error
+	}
+}
+
 export const APPROVAL_CONFIG: Record<ApprovalMode, { label: string; sub: string; desc: string }> = {
 	"yolo": {
 		label: "全自动",
@@ -126,6 +153,8 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 	const dragCounter = useRef(0);
 	const inputRef = useRef<HTMLTextAreaElement | null>(null);
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
+	const historyIndexRef = useRef<number | null>(null);
+	const draftRef = useRef<string>("");
 	const connected = thread.status === "ready";
 	useEffect(() => {
 		if (autoFocus) inputRef.current?.focus();
@@ -165,16 +194,105 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 				message = `请查看以下附带文件：\n${refs}`;
 			}
 		}
-
+		if (trimmed) {
+			savePromptHistory(trimmed);
+		}
+		historyIndexRef.current = null;
+		draftRef.current = "";
 		setText("");
 		setAttachments([]);
+		if (thread.working) {
+			enqueuePrompt(
+				thread.key,
+				trimmed,
+				message,
+				images.length > 0 ? images : undefined,
+				attachments.map(a => ({
+					id: a.id,
+					type: a.type,
+					name: a.name,
+					path: a.path,
+					relativePath: a.type === "file" ? a.relativePath : undefined,
+					mimeType: a.type === "image" ? a.mimeType : undefined,
+					data: a.type === "image" ? a.data : undefined,
+					previewUrl: a.type === "image" ? a.previewUrl : undefined,
+				})),
+			);
+			return;
+		}
+		playSound("send");
 		void sendPrompt(thread.key, message, images.length > 0 ? images : undefined);
 	};
 
+	const handleEditQueued = (queued: QueuedPrompt): void => {
+		removeQueuedPrompt(thread.key, queued.id);
+		setText(queued.text);
+		if (queued.attachments && queued.attachments.length > 0) {
+			const restored: ComposerAttachment[] = queued.attachments.map(att => {
+				if (att.type === "image") {
+					return {
+						id: att.id,
+						type: "image",
+						name: att.name,
+						path: att.path,
+						mimeType: att.mimeType || "image/png",
+						data: att.data || "",
+						previewUrl: att.previewUrl || "",
+					};
+				}
+				return {
+					id: att.id,
+					type: "file",
+					name: att.name,
+					path: att.path || att.name,
+					relativePath: att.relativePath || att.name,
+				};
+			});
+			setAttachments(restored);
+		}
+		inputRef.current?.focus();
+	};
 	const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
 		if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
 			event.preventDefault();
 			submit();
+			return;
+		}
+
+		if (event.key === "ArrowUp") {
+			const atStart = inputRef.current
+				? inputRef.current.selectionStart === 0 && inputRef.current.selectionEnd === 0
+				: text.length === 0;
+			if (atStart) {
+				const history = loadPromptHistory();
+				if (history.length > 0) {
+					event.preventDefault();
+					if (historyIndexRef.current === null) {
+						draftRef.current = text;
+						historyIndexRef.current = history.length - 1;
+						setText(history[history.length - 1]!);
+					} else if (historyIndexRef.current > 0) {
+						historyIndexRef.current -= 1;
+						setText(history[historyIndexRef.current]!);
+					}
+				}
+			}
+			return;
+		}
+
+		if (event.key === "ArrowDown") {
+			if (historyIndexRef.current !== null) {
+				event.preventDefault();
+				const history = loadPromptHistory();
+				if (historyIndexRef.current < history.length - 1) {
+					historyIndexRef.current += 1;
+					setText(history[historyIndexRef.current]!);
+				} else {
+					historyIndexRef.current = null;
+					setText(draftRef.current);
+				}
+			}
+			return;
 		}
 	};
 
@@ -215,8 +333,20 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 	};
 
 	const onPaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>): Promise<void> => {
+		const files: File[] = [];
 		if (e.clipboardData.files && e.clipboardData.files.length > 0) {
-			const newAtts = await processDroppedFiles(e.clipboardData.files, thread.cwd);
+			files.push(...Array.from(e.clipboardData.files));
+		} else if (e.clipboardData.items) {
+			for (const item of Array.from(e.clipboardData.items)) {
+				if (item.kind === "file") {
+					const file = item.getAsFile();
+					if (file) files.push(file);
+				}
+			}
+		}
+		if (files.length > 0) {
+			e.preventDefault();
+			const newAtts = await processDroppedFiles(files, thread.cwd);
 			if (newAtts.length > 0) {
 				setAttachments(prev => [...prev, ...newAtts]);
 			}
@@ -239,7 +369,13 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 	const queued = thread.state?.queuedMessageCount ?? 0;
 
 	return (
-		<div
+		<>
+			<QueuedPromptTray
+				threadKey={thread.key}
+				prompts={thread.queuedPrompts}
+				onEdit={handleEditQueued}
+			/>
+			<div
 			className={`cp${isDragging ? " is-dragging" : ""}`}
 			onDragEnter={onDragEnter}
 			onDragLeave={onDragLeave}
@@ -289,11 +425,14 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 					!connected
 						? "正在连接 omp…"
 						: thread.working
-							? "补充说明，将在当前步骤后处理"
+							? "任务进行中... 输入新需求按 Enter 挂起排队，或可随时直接干预当前任务"
 							: "输入消息，Enter 发送，Shift+Enter 换行，支持拖拽文件/图片"
 				}
 				disabled={!connected}
-				onChange={e => setText(e.target.value)}
+				onChange={e => {
+					historyIndexRef.current = null;
+					setText(e.target.value);
+				}}
 				onKeyDown={onKeyDown}
 				onPaste={onPaste}
 			/>
@@ -333,16 +472,31 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 					</span>
 				)}
 				{thread.working && !text.trim() && attachments.length === 0 ? (
-					<button type="button" className="cp-send is-stop" title="停止" onClick={() => void abort(thread.key)}>
+					<button
+						type="button"
+						className="cp-send is-stop"
+						title="停止"
+						onClick={() => {
+							playSound("error");
+							void abort(thread.key);
+						}}
+					>
 						<Square size={12} fill="currentColor" />
 					</button>
 				) : (
-					<button type="button" className="cp-send" title="发送" disabled={!canSend} onClick={submit}>
+					<button
+						type="button"
+						className="cp-send"
+						title={thread.working ? "挂起排队 (任务结束后自动执行)" : "发送"}
+						disabled={!canSend}
+						onClick={submit}
+					>
 						<ArrowUp size={16} />
 					</button>
 				)}
 			</div>
 		</div>
+		</>
 	);
 }
 

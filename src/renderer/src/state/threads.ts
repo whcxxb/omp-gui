@@ -6,12 +6,15 @@ import type { AssistantMessage, ImageContent, SessionEntry, WireMessage } from "
 import type {
 	ApprovalMode,
 	Notice,
+	QueuedPrompt,
+	QueuedPromptAttachment,
 	SessionStateSnapshot,
 	SubagentProgress,
 	SubagentSnapshot,
 	Thread,
 	UiRequest,
 } from "./types";
+import { playSound } from "@/lib/sound";
 
 const MAX_NOTICES = 20;
 
@@ -176,6 +179,7 @@ function blankThread(cwd: string, sessionFile?: string, approvalMode: ApprovalMo
 		activeSubagentId: null,
 		isSubagentPanelOpen: false,
 		uiRequests: [],
+		queuedPrompts: [],
 		notices: [],
 	};
 }
@@ -229,6 +233,66 @@ export async function sendPrompt(key: string, message: string, images?: ImageCon
 	}
 }
 
+export function enqueuePrompt(
+	key: string,
+	text: string,
+	message: string,
+	images?: ImageContent[],
+	attachments?: QueuedPromptAttachment[],
+): void {
+	const thread = getThread(key);
+	if (!thread) return;
+	const queued: QueuedPrompt = {
+		id: crypto.randomUUID(),
+		text,
+		message,
+		images,
+		attachments,
+		createdAt: Date.now(),
+	};
+	update(key, t => ({ queuedPrompts: [...t.queuedPrompts, queued] }));
+	playSound("send");
+}
+
+export async function steerQueuedPrompt(key: string, id: string): Promise<void> {
+	const thread = getThread(key);
+	if (!thread?.runtimeId) return;
+	const target = thread.queuedPrompts.find(q => q.id === id);
+	if (!target) return;
+	update(key, t => ({ queuedPrompts: t.queuedPrompts.filter(q => q.id !== id) }));
+	playSound("request");
+	const command: Frame = {
+		type: "prompt",
+		message: target.message,
+		streamingBehavior: "steer",
+	};
+	if (target.images && target.images.length > 0) command.images = target.images;
+	try {
+		await window.omp.request(thread.runtimeId, command);
+		update(key, t => pushNotice(t, "info", "已向当前对话任务注入修改干预"));
+	} catch (error) {
+		update(key, t => pushNotice(t, "error", error instanceof Error ? error.message : String(error)));
+	}
+}
+
+export function removeQueuedPrompt(key: string, id: string): QueuedPrompt | undefined {
+	const thread = getThread(key);
+	if (!thread) return undefined;
+	const target = thread.queuedPrompts.find(q => q.id === id);
+	update(key, t => ({ queuedPrompts: t.queuedPrompts.filter(q => q.id !== id) }));
+	playSound("toggle");
+	return target;
+}
+
+export async function dispatchNextQueuedPrompt(key: string): Promise<void> {
+	const thread = getThread(key);
+	if (!thread || !thread.runtimeId || thread.working || thread.status !== "ready") return;
+	if (thread.queuedPrompts.length === 0) return;
+	const next = thread.queuedPrompts[0]!;
+	update(key, t => ({ queuedPrompts: t.queuedPrompts.slice(1) }));
+	void sendPrompt(key, next.message, next.images);
+}
+
 export async function abort(key: string): Promise<void> {
 	const thread = getThread(key);
 	if (!thread?.runtimeId) return;
@@ -256,6 +320,10 @@ function applyFrame(thread: Thread, frame: Frame): Partial<Thread> | null {
 			return { working: true };
 		case "agent_end":
 			void refreshState(thread.key);
+			playSound("complete");
+			setTimeout(() => {
+				void dispatchNextQueuedPrompt(thread.key);
+			}, 120);
 			return { working: false, activeTools: new Map() };
 		case "message_start":
 		case "message_update": {
@@ -390,6 +458,7 @@ function applyFrame(thread: Thread, frame: Frame): Partial<Thread> | null {
 		case "prompt_result": {
 			// omp >= 18.3.2：提示词终态帧，仅在出错时提示
 			if (frame.status !== "error") return null;
+			playSound("error");
 			const error = frame.error as { message?: string } | undefined;
 			return pushNotice(thread, "error", String(error?.message ?? "请求失败"));
 		}
@@ -407,6 +476,7 @@ function applyUiRequest(thread: Thread, frame: Frame): Partial<Thread> | null {
 		case "confirm":
 		case "input":
 		case "editor":
+			playSound("request");
 			return { uiRequests: [...thread.uiRequests, frame as unknown as UiRequest] };
 		case "cancel":
 			return { uiRequests: thread.uiRequests.filter(r => r.id !== frame.targetId) };
@@ -499,3 +569,13 @@ export function getDefaultApprovalMode(): ApprovalMode {
 
 
 export type { SessionStateSnapshot };
+
+if (typeof window !== "undefined") {
+	(window as unknown as Record<string, unknown>).__ompThreads = {
+		getThreads: () => threads,
+		enqueuePrompt,
+		steerQueuedPrompt,
+		removeQueuedPrompt,
+		dispatchNextQueuedPrompt,
+	};
+}

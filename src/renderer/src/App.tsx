@@ -1,11 +1,16 @@
-import { FolderOpen, FolderPlus, RotateCw, Shield, ShieldAlert, ShieldCheck, Workflow, X } from "lucide-react";
+import { Download, FolderOpen, FolderPlus, PanelLeft, RotateCw, Shield, ShieldAlert, ShieldCheck, Workflow, X } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import type { ProjectSummary, SessionSummary } from "@shared/ipc";
 import { APPROVAL_CONFIG, Composer } from "./components/Composer";
 import { Sidebar } from "./components/Sidebar";
 import { ThreadView } from "./components/ThreadView";
 import { SubagentPanel } from "./components/SubagentPanel";
+import { CommandPalette } from "./components/CommandPalette";
+import { SettingsModal } from "./components/SettingsModal";
 import { UiRequestCard } from "./components/UiRequestCard";
+import { exportThreadToMarkdown } from "./lib/export";
+import { playSound } from "./lib/sound";
+import { applyTheme, loadTheme } from "./lib/theme";
 import { shortPath } from "./lib/time";
 import {
 	closeThread,
@@ -19,12 +24,35 @@ import {
 } from "./state/threads";
 import type { Thread } from "./state/types";
 
+const DEFAULT_SIDEBAR_WIDTH = 272;
+const SIDEBAR_WIDTH_KEY = "omp-gui.sidebar-width";
+
+function loadSidebarWidth(): number {
+	const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
+	const num = saved ? Number(saved) : DEFAULT_SIDEBAR_WIDTH;
+	return Number.isFinite(num) && num >= 180 && num <= 500 ? num : DEFAULT_SIDEBAR_WIDTH;
+}
+
 export function App(): ReactNode {
 	const threads = useThreads();
 	const [projects, setProjects] = useState<ProjectSummary[]>([]);
 	const [activeKey, setActiveKey] = useState<string | null>(null);
 	const [currentProject, setCurrentProject] = useState<string | null>(null);
 	const [ompVersion, setOmpVersion] = useState<string | null>(null);
+	const [sidebarOpen, setSidebarOpen] = useState(true);
+	const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
+	const [settingsOpen, setSettingsOpen] = useState(false);
+	const [sidebarWidth, setSidebarWidth] = useState<number>(loadSidebarWidth);
+
+	const updateSidebarWidth = (w: number): void => {
+		setSidebarWidth(w);
+		localStorage.setItem(SIDEBAR_WIDTH_KEY, String(w));
+	};
+
+	const resetSidebarWidth = (): void => {
+		setSidebarWidth(DEFAULT_SIDEBAR_WIDTH);
+		localStorage.setItem(SIDEBAR_WIDTH_KEY, String(DEFAULT_SIDEBAR_WIDTH));
+	};
 
 	const refreshProjects = useCallback(() => {
 		void window.omp.listProjects().then(setProjects);
@@ -45,6 +73,7 @@ export function App(): ReactNode {
 	const activeProject = active?.cwd ?? currentProject ?? projects[0]?.path ?? null;
 
 	const newThread = (cwd: string): void => {
+		playSound("switch");
 		setCurrentProject(cwd);
 		// 复用当前项目里尚未发送过消息的空对话
 		const blank = threads.find(t => t.cwd === cwd && t.entries.length === 0 && !t.sessionFile && t.status !== "exited");
@@ -52,6 +81,7 @@ export function App(): ReactNode {
 	};
 
 	const openSession = (session: SessionSummary): void => {
+		playSound("switch");
 		setCurrentProject(session.cwd);
 		setActiveKey(openThread(session.cwd, session.file));
 	};
@@ -78,13 +108,71 @@ export function App(): ReactNode {
 		refreshProjects();
 	};
 
+	const deleteSession = async (file: string): Promise<void> => {
+		const confirmed = window.confirm("确定要删除该对话记录吗？此操作将永久删除会话文件。");
+		if (!confirmed) return;
+		const openThreadForFile = threads.find(t => t.sessionFile === file);
+		if (openThreadForFile) {
+			await closeThread(openThreadForFile.key);
+			if (activeKey === openThreadForFile.key) setActiveKey(null);
+		}
+		await window.omp.deleteSession(file);
+		refreshProjects();
+	};
+
+	const toggleTheme = useCallback(() => {
+		playSound("toggle");
+		const current = loadTheme();
+		applyTheme(current === "claude" ? "default" : "claude");
+	}, []);
+
+	useEffect(() => {
+		const onKeyDown = (e: KeyboardEvent): void => {
+			const isMod = e.metaKey || e.ctrlKey;
+			if (!isMod) return;
+
+			if (e.key === "k" || e.key === "K") {
+				e.preventDefault();
+				setCmdPaletteOpen(v => !v);
+				return;
+			}
+			if (e.key === "n" || e.key === "N") {
+				e.preventDefault();
+				if (activeProject) newThread(activeProject);
+				return;
+			}
+			if (e.key === "w" || e.key === "W") {
+				if (activeKey) {
+					e.preventDefault();
+					void closeThread(activeKey);
+					setActiveKey(null);
+				}
+				return;
+			}
+			if (e.key === "b" || e.key === "B") {
+				e.preventDefault();
+				setSidebarOpen(v => !v);
+				return;
+			}
+			if (e.key === "," || e.key === "，") {
+				e.preventDefault();
+				setSettingsOpen(v => !v);
+				return;
+			}
+		};
+		window.addEventListener("keydown", onKeyDown);
+		return () => window.removeEventListener("keydown", onKeyDown);
+	}, [activeKey, activeProject]);
 	// 被进程池回收的对话在重新选中时自动恢复
 	useEffect(() => {
 		if (active?.status === "exited" && !active.error) reconnect(active.key);
 	}, [active?.key, active?.status, active?.error]);
 
 	return (
-		<div className="app">
+		<div
+			className={`app${sidebarOpen ? "" : " sb-collapsed"}`}
+			style={{ "--sidebar-width": `${sidebarWidth}px` } as React.CSSProperties}
+		>
 			<Sidebar
 				projects={projects}
 				threads={threads}
@@ -96,19 +184,49 @@ export function App(): ReactNode {
 				onSelectThread={selectThread}
 				onAddProject={() => void addProject()}
 				onRemoveProject={path => void removeProject(path)}
+				onDeleteSession={file => void deleteSession(file)}
+				onToggleSidebar={() => setSidebarOpen(v => !v)}
+				sidebarWidth={sidebarWidth}
+				onWidthChange={updateSidebarWidth}
+				onResetWidth={resetSidebarWidth}
+				isSettingsActive={settingsOpen}
+				onOpenSettings={() => setSettingsOpen(v => !v)}
 			/>
 			<main className="main">
 				{active ? (
-					<ThreadPane thread={active} />
+					<ThreadPane
+						thread={active}
+						sidebarOpen={sidebarOpen}
+						onToggleSidebar={() => setSidebarOpen(v => !v)}
+					/>
 				) : (
 					<Welcome
 						project={activeProject}
 						ompVersion={ompVersion}
+						sidebarOpen={sidebarOpen}
+						onToggleSidebar={() => setSidebarOpen(v => !v)}
 						onAddProject={() => void addProject()}
 						onNewThread={newThread}
 					/>
 				)}
 			</main>
+			<CommandPalette
+				isOpen={cmdPaletteOpen}
+				onClose={() => setCmdPaletteOpen(false)}
+				projects={projects}
+				activeProject={activeProject}
+				onNewThread={newThread}
+				onOpenSession={openSession}
+				onToggleTheme={toggleTheme}
+				onToggleSidebar={() => setSidebarOpen(v => !v)}
+				onOpenSettings={() => setSettingsOpen(true)}
+			/>
+			<SettingsModal
+				isOpen={settingsOpen}
+				onClose={() => setSettingsOpen(false)}
+				ompVersion={ompVersion}
+				onResetSidebarWidth={resetSidebarWidth}
+			/>
 		</div>
 	);
 }
@@ -125,7 +243,15 @@ function firstPrompt(thread: Thread): string | null {
 	return null;
 }
 
-function ThreadPane({ thread }: { thread: Thread }): ReactNode {
+function ThreadPane({
+	thread,
+	sidebarOpen,
+	onToggleSidebar,
+}: {
+	thread: Thread;
+	sidebarOpen: boolean;
+	onToggleSidebar(): void;
+}): ReactNode {
 	const title = thread.state?.sessionName || firstPrompt(thread) || (thread.entries.length === 0 ? "新对话" : "未���名对话");
 	const empty = thread.entries.length === 0 && !thread.stream && !thread.working;
 	const projectName = thread.cwd.split("/").filter(Boolean).at(-1) ?? thread.cwd;
@@ -133,6 +259,14 @@ function ThreadPane({ thread }: { thread: Thread }): ReactNode {
 	return (
 		<>
 			<header className="mh">
+				{!sidebarOpen && (
+					<>
+						<div className="mh-traffic-spacer" />
+						<button type="button" className="mh-sidebar-toggle" title="显示侧边栏 (⌘B)" onClick={onToggleSidebar}>
+							<PanelLeft size={13} />
+						</button>
+					</>
+				)}
 				<div className="mh-title">{title}</div>
 				{(() => {
 					const mode = thread.approvalMode ?? "yolo";
@@ -159,6 +293,20 @@ function ThreadPane({ thread }: { thread: Thread }): ReactNode {
 						</span>
 					)}
 				</button>
+				{thread.entries.length > 0 && (
+					<button
+						type="button"
+						className="mh-export-btn"
+						title="导出为 Markdown"
+						onClick={() => {
+							playSound("export");
+							exportThreadToMarkdown(thread);
+						}}
+					>
+						<Download size={13} />
+						<span>导出</span>
+					</button>
+				)}
 				<button
 					type="button"
 					className="mh-path"
@@ -220,12 +368,28 @@ function ThreadPane({ thread }: { thread: Thread }): ReactNode {
 function Welcome(props: {
 	project: string | null;
 	ompVersion: string | null;
+	sidebarOpen: boolean;
+	onToggleSidebar(): void;
 	onAddProject(): void;
 	onNewThread(cwd: string): void;
 }): ReactNode {
 	return (
 		<>
-			<header className="mh" />
+			<header className="mh">
+				{!props.sidebarOpen && (
+					<>
+						<div className="mh-traffic-spacer" />
+						<button
+							type="button"
+							className="mh-sidebar-toggle"
+							title="显示侧边栏 (⌘B)"
+							onClick={props.onToggleSidebar}
+						>
+							<PanelLeft size={13} />
+						</button>
+					</>
+				)}
+			</header>
 			<div className="hero">
 				{props.ompVersion === null ? (
 					<>

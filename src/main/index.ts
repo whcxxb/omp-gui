@@ -1,9 +1,11 @@
+import { execFile } from "node:child_process";
 import { existsSync, watch } from "node:fs";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import type { ApprovalMode, OpenSessionOptions, Theme } from "@shared/ipc";
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from "electron";
 import { detectDefaultApprovalMode, ompVersion, RuntimePool } from "./runtimes";
-import { groupProjects, scanSessions, sessionsDir } from "./sessions";
+import { deleteSessionFile, groupProjects, scanSessions, sessionsDir } from "./sessions";
 import { readStore, writeStore } from "./store";
 
 let win: BrowserWindow | null = null;
@@ -93,6 +95,11 @@ function registerIpc(): void {
 		const store = readStore();
 		writeStore({ ...store, projects: store.projects.filter(p => p !== path), hidden: [...new Set([...store.hidden, path])] });
 	});
+	ipcMain.handle("omp:delete-session", async (_e, file: string) => {
+		const success = await deleteSessionFile(file);
+		win?.webContents.send("omp:projects-changed");
+		return success;
+	});
 	ipcMain.handle("omp:open-session", (_e, options: OpenSessionOptions) => {
 		const store = readStore();
 		if (store.hidden.includes(options.cwd)) writeStore({ ...store, hidden: store.hidden.filter(p => p !== options.cwd) });
@@ -112,6 +119,29 @@ function registerIpc(): void {
 	ipcMain.handle("omp:set-default-approval-mode", (_e, mode: ApprovalMode) => {
 		const store = readStore();
 		writeStore({ ...store, defaultApprovalMode: mode });
+	});
+	ipcMain.handle("omp:get-configs", async () => {
+		try {
+			const { stdout } = await promisify(execFile)("omp", ["config", "list", "--json"]);
+			const all = JSON.parse(stdout) as Record<string, { value?: unknown }>;
+			const result: Record<string, unknown> = {};
+			for (const [k, v] of Object.entries(all)) {
+				if (v && typeof v === "object" && "value" in v) {
+					result[k] = v.value;
+				}
+			}
+			return result;
+		} catch {
+			return {};
+		}
+	});
+	ipcMain.handle("omp:set-config", async (_e, key: string, value: string) => {
+		try {
+			await promisify(execFile)("omp", ["config", "set", key, String(value)]);
+			return true;
+		} catch {
+			return false;
+		}
 	});
 	ipcMain.handle("omp:set-theme", (_e, theme: Theme) => {
 		const store = readStore();

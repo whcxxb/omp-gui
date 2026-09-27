@@ -2,7 +2,27 @@ import type { ActiveTool } from "@/collab/lib/client";
 import type { ApprovalMode } from "@shared/ipc";
 
 export type { ApprovalMode };
-import type { AssistantMessage, SessionEntry } from "@/collab/wire/index";
+import type { AssistantMessage, ImageContent, SessionEntry } from "@/collab/wire/index";
+
+export interface QueuedPromptAttachment {
+	id: string;
+	type: "image" | "file";
+	name: string;
+	path?: string;
+	relativePath?: string;
+	mimeType?: string;
+	data?: string;
+	previewUrl?: string;
+}
+
+export interface QueuedPrompt {
+	id: string;
+	text: string;
+	message: string;
+	images?: ImageContent[];
+	attachments?: QueuedPromptAttachment[];
+	createdAt: number;
+}
 
 export interface ModelInfo {
 	provider: string;
@@ -95,5 +115,6 @@ export interface Thread {
 	activeSubagentId: string | null;
 	isSubagentPanelOpen: boolean;
 	uiRequests: UiRequest[];
+	queuedPrompts: QueuedPrompt[];
 	notices: Notice[];
 }
