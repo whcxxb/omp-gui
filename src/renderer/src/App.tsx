@@ -121,6 +121,14 @@ export function App(): ReactNode {
 		refreshProjects();
 	};
 
+	const handleCloseThread = async (key: string): Promise<void> => {
+		await closeThread(key);
+		if (activeKey === key) {
+			const remaining = threads.filter(t => t.key !== key && t.cwd === activeProject);
+			setActiveKey(remaining[0]?.key ?? null);
+		}
+	};
+
 	const toggleTheme = useCallback(() => {
 		playSound("toggle");
 		const current = loadTheme();
@@ -207,6 +215,7 @@ export function App(): ReactNode {
 				onAddProject={() => void addProject()}
 				onRemoveProject={path => void removeProject(path)}
 				onDeleteSession={file => void deleteSession(file)}
+				onCloseThread={key => void handleCloseThread(key)}
 				onToggleSidebar={() => setSidebarOpen(v => !v)}
 				sidebarWidth={sidebarWidth}
 				onWidthChange={updateSidebarWidth}

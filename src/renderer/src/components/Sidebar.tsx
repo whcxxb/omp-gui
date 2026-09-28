@@ -44,6 +44,7 @@ interface SidebarProps {
 	onAddProject(): void;
 	onRemoveProject(path: string): void;
 	onDeleteSession(file: string): void;
+	onCloseThread?(key: string): void;
 	onToggleSidebar(): void;
 	sidebarWidth: number;
 	onWidthChange(width: number): void;
@@ -256,14 +257,18 @@ export function Sidebar(props: SidebarProps): ReactNode {
 											>
 												<ThreadDot thread={item.thread} />
 												<span className="sb-thread-title">{item.title}</span>
-												{item.session && (
+												{(item.session || item.thread) && (
 													<button
 														type="button"
 														className="sb-thread-delete"
-														title="删除此会话"
+														title={item.session ? "删除此会话" : "关闭此新对话"}
 														onClick={e => {
 															e.stopPropagation();
-															if (item.session) props.onDeleteSession(item.session.file);
+															if (item.session) {
+																props.onDeleteSession(item.session.file);
+															} else if (item.thread && props.onCloseThread) {
+																props.onCloseThread(item.thread.key);
+															}
 														}}
 													>
 														<Trash2 size={12} />
