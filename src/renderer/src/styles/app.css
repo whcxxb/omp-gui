@@ -1729,6 +1729,20 @@
 	object-fit: contain;
 }
 
+.th-user-meta {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	margin-top: -2px;
+}
+
+.th-user-time {
+	font-size: 11px;
+	color: var(--fg-faint);
+	font-variant-numeric: tabular-nums;
+	user-select: none;
+}
+
 .th-assistant {
 	display: flex;
 	flex-direction: column;
@@ -2576,19 +2590,27 @@
 	align-items: center;
 	justify-content: space-between;
 	height: 48px;
-	padding: 0 20px;
+	padding: 0 20px 0 84px;
 	border-bottom: 1px solid var(--border);
 	background: var(--bg-inset);
 	flex: none;
 	user-select: none;
+	-webkit-app-region: drag;
 }
 
 .set-header-left {
 	display: flex;
 	align-items: center;
 	gap: 12px;
+	-webkit-app-region: no-drag;
 }
 
+.set-header-right {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	-webkit-app-region: no-drag;
+}
 .set-back-btn {
 	display: inline-flex;
 	align-items: center;

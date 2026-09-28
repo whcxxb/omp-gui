@@ -48,6 +48,37 @@ function UserContent({ content }: { content: string | readonly (TextContent | Im
 	);
 }
 
+function formatMessageTime(raw?: number | string): string | null {
+	if (!raw) return null;
+	const date = typeof raw === "number" ? new Date(raw) : new Date(Date.parse(raw));
+	if (isNaN(date.getTime())) return null;
+
+	const now = new Date();
+	const isToday =
+		date.getFullYear() === now.getFullYear() &&
+		date.getMonth() === now.getMonth() &&
+		date.getDate() === now.getDate();
+
+	const h = String(date.getHours()).padStart(2, "0");
+	const m = String(date.getMinutes()).padStart(2, "0");
+
+	if (isToday) return `${h}:${m}`;
+
+	const isSameYear = date.getFullYear() === now.getFullYear();
+	const month = String(date.getMonth() + 1).padStart(2, "0");
+	const day = String(date.getDate()).padStart(2, "0");
+
+	if (isSameYear) return `${month}-${day} ${h}:${m}`;
+	return `${date.getFullYear()}-${month}-${day} ${h}:${m}`;
+}
+
+function getFullTimeString(raw?: number | string): string | undefined {
+	if (!raw) return undefined;
+	const date = typeof raw === "number" ? new Date(raw) : new Date(Date.parse(raw));
+	if (isNaN(date.getTime())) return undefined;
+	return date.toLocaleString();
+}
+
 interface AssistantProps {
 	message: AssistantMessage;
 	results: ReadonlyMap<string, ToolResultMessage>;
@@ -118,10 +149,18 @@ const EntryRow = memo(function EntryRow({
 			const msg = entry.message;
 			if (msg.role === "user") {
 				if (msg.synthetic) return null;
+				const timeRaw = msg.timestamp || entry.timestamp;
+				const timeStr = formatMessageTime(timeRaw);
+				const fullTime = getFullTimeString(timeRaw);
 				return (
 					<div className="th-user">
 						<div className="th-user-bubble">
 							<UserContent content={msg.content} />
+							{timeStr && (
+								<div className="th-user-meta" title={fullTime}>
+									<span className="th-user-time">{timeStr}</span>
+								</div>
+							)}
 						</div>
 					</div>
 				);

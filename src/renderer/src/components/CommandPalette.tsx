@@ -126,18 +126,23 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
 			});
 		}
 
-		// 3. 历史会话
+		// 3. 历史会话 (按最新修改时间降序排序)
+		const allSessions: Array<{ session: SessionSummary; projectName: string }> = [];
 		for (const p of projects) {
 			for (const s of p.sessions) {
-				list.push({
-					id: `session-${s.file}`,
-					group: "会话",
-					title: s.title || "未命名对话",
-					sub: `${p.name} · ${relativeTime(s.updatedAt)}`,
-					icon: <MessageSquare size={15} />,
-					onSelect: () => onOpenSession(s),
-				});
+				allSessions.push({ session: s, projectName: p.name });
 			}
+		}
+		allSessions.sort((a, b) => b.session.updatedAt - a.session.updatedAt);
+		for (const { session: s, projectName } of allSessions) {
+			list.push({
+				id: `session-${s.file}`,
+				group: "会话",
+				title: s.title || "未命名对话",
+				sub: `${projectName} · ${relativeTime(s.updatedAt)}`,
+				icon: <MessageSquare size={15} />,
+				onSelect: () => onOpenSession(s),
+			});
 		}
 
 		return list;

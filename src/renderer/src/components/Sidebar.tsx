@@ -1,10 +1,35 @@
 import { ChevronRight, Folder, FolderPlus, PanelLeft, Settings, SquarePen, Trash2, X } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import type { ProjectSummary, SessionSummary } from "@shared/ipc";
 import { relativeTime, shortPath } from "@/lib/time";
 import type { Thread } from "@/state/types";
 
 const COLLAPSED_LIMIT = 6;
+
+interface SidebarThreadItem {
+	key: string;
+	title: string;
+	updatedAt: number;
+	thread?: Thread;
+	session?: SessionSummary;
+	isActive: boolean;
+}
+
+function getThreadLatestTime(thread: Thread): number {
+	if (thread.working) return Date.now();
+	if (thread.entries.length > 0) {
+		const last = thread.entries[thread.entries.length - 1];
+		if (last.type === "message") {
+			const raw = last.message.timestamp || last.timestamp;
+			const ts = typeof raw === "number" ? raw : Date.parse(raw);
+			if (!isNaN(ts)) return ts;
+		} else if (last.timestamp) {
+			const ts = Date.parse(last.timestamp);
+			if (!isNaN(ts)) return ts;
+		}
+	}
+	return 0;
+}
 
 interface SidebarProps {
 	projects: ProjectSummary[];
@@ -65,22 +90,72 @@ export function Sidebar(props: SidebarProps): ReactNode {
 		return next;
 	};
 
-	// 已打开但尚未写入会话文件的新对话
-	const pendingByProject = new Map<string, Thread[]>();
-	for (const thread of threads) {
-		const file = thread.sessionFile ?? thread.state?.sessionFile;
-		const listed = file && projects.some(p => p.sessions.some(s => s.file === file));
-		if (listed) continue;
-		const list = pendingByProject.get(thread.cwd) ?? [];
-		list.push(thread);
-		pendingByProject.set(thread.cwd, list);
-	}
+	const threadByFile = useMemo(() => {
+		const map = new Map<string, Thread>();
+		for (const thread of threads) {
+			const file = thread.sessionFile ?? thread.state?.sessionFile;
+			if (file) map.set(file, thread);
+		}
+		return map;
+	}, [threads]);
 
-	const threadByFile = new Map<string, Thread>();
-	for (const thread of threads) {
-		const file = thread.sessionFile ?? thread.state?.sessionFile;
-		if (file) threadByFile.set(file, thread);
-	}
+	// 项目内对话按最新的修改时间统一降序排序
+	const projectThreadItems = useMemo(() => {
+		const map = new Map<string, SidebarThreadItem[]>();
+
+		for (const project of projects) {
+			const items: SidebarThreadItem[] = [];
+			const seenFiles = new Set<string>();
+			const seenKeys = new Set<string>();
+
+			// 1. 已持久化的历史会话
+			for (const session of project.sessions) {
+				seenFiles.add(session.file);
+				const open = threadByFile.get(session.file);
+				if (open) seenKeys.add(open.key);
+
+				const threadTime = open ? getThreadLatestTime(open) : 0;
+				const updatedAt = Math.max(session.updatedAt, threadTime);
+				const title = open?.state?.sessionName || session.title || "未命名对话";
+
+				items.push({
+					key: open?.key ?? session.file,
+					title,
+					updatedAt,
+					thread: open,
+					session,
+					isActive: open ? open.key === activeKey : false,
+				});
+			}
+
+			// 2. 当前项目中已打开但尚未写入会话文件的对话（如新对话）
+			const projectThreads = threads.filter(t => t.cwd === project.path);
+			for (const t of projectThreads) {
+				if (seenKeys.has(t.key)) continue;
+				const file = t.sessionFile ?? t.state?.sessionFile;
+				if (file && seenFiles.has(file)) continue;
+
+				seenKeys.add(t.key);
+				const threadTime = getThreadLatestTime(t);
+				const updatedAt = threadTime > 0 ? threadTime : Date.now();
+				const title = t.state?.sessionName || "新对话";
+
+				items.push({
+					key: t.key,
+					title,
+					updatedAt,
+					thread: t,
+					isActive: t.key === activeKey,
+				});
+			}
+
+			// 按最新的修改/活动时间从新到旧排序
+			items.sort((a, b) => b.updatedAt - a.updatedAt);
+			map.set(project.path, items);
+		}
+
+		return map;
+	}, [projects, threads, threadByFile, activeKey]);
 
 	return (
 		<aside className="sb">
@@ -130,9 +205,9 @@ export function Sidebar(props: SidebarProps): ReactNode {
 				)}
 				{projects.map(project => {
 					const isCollapsed = collapsed.has(project.path);
-					const pending = pendingByProject.get(project.path) ?? [];
+					const allItems = projectThreadItems.get(project.path) ?? [];
 					const showAll = expanded.has(project.path);
-					const sessions = showAll ? project.sessions : project.sessions.slice(0, COLLAPSED_LIMIT);
+					const items = showAll ? allItems : allItems.slice(0, COLLAPSED_LIMIT);
 					return (
 						<div key={project.path} className="sb-project">
 							<div className={`sb-project-row${project.path === activeProject ? " is-current" : ""}`}>
@@ -168,58 +243,47 @@ export function Sidebar(props: SidebarProps): ReactNode {
 							</div>
 							{!isCollapsed && (
 								<ul className="sb-threads">
-									{pending.map(thread => (
-										<li key={thread.key}>
+									{items.map(item => (
+										<li key={item.key}>
 											<button
 												type="button"
-												className={`sb-thread${thread.key === activeKey ? " is-active" : ""}`}
-												onClick={() => props.onSelectThread(thread.key)}
+												className={`sb-thread${item.isActive ? " is-active" : ""}`}
+												title={`${item.title} · ${relativeTime(item.updatedAt)}`}
+												onClick={() => {
+													if (item.session) props.onOpenSession(item.session);
+													else if (item.thread) props.onSelectThread(item.thread.key);
+												}}
 											>
-												<ThreadDot thread={thread} />
-												<span className="sb-thread-title">{thread.state?.sessionName || "新对话"}</span>
-											</button>
-										</li>
-									))}
-									{sessions.map(session => {
-										const open = threadByFile.get(session.file);
-										const sessionTitle = open?.state?.sessionName || session.title || "未命名对话";
-										return (
-											<li key={session.file}>
-												<button
-													type="button"
-													className={`sb-thread${open && open.key === activeKey ? " is-active" : ""}`}
-													title={`${sessionTitle} · ${relativeTime(session.updatedAt)}`}
-													onClick={() => props.onOpenSession(session)}
-												>
-													<ThreadDot thread={open} />
-													<span className="sb-thread-title">{sessionTitle}</span>
+												<ThreadDot thread={item.thread} />
+												<span className="sb-thread-title">{item.title}</span>
+												{item.session && (
 													<button
 														type="button"
 														className="sb-thread-delete"
 														title="删除此会话"
 														onClick={e => {
 															e.stopPropagation();
-															props.onDeleteSession(session.file);
+															if (item.session) props.onDeleteSession(item.session.file);
 														}}
 													>
 														<Trash2 size={12} />
 													</button>
-												</button>
-											</li>
-										);
-									})}
-									{project.sessions.length > COLLAPSED_LIMIT && (
+												)}
+											</button>
+										</li>
+									))}
+									{allItems.length > COLLAPSED_LIMIT && (
 										<li>
 											<button
 												type="button"
 												className="sb-more"
 												onClick={() => setExpanded(s => toggle(s, project.path))}
 											>
-												{showAll ? "收起" : `显示全部 ${project.sessions.length} 个`}
+												{showAll ? "收起" : `显示全部 ${allItems.length} 个`}
 											</button>
 										</li>
 									)}
-									{pending.length === 0 && project.sessions.length === 0 && (
+									{allItems.length === 0 && (
 										<li className="sb-thread-empty">暂无对话</li>
 									)}
 								</ul>
