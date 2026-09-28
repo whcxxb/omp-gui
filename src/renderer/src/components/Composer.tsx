@@ -14,10 +14,10 @@ import {
 	X,
 } from "lucide-react";
 import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import type { AssistantMessage, ImageContent, SessionEntry } from "@/collab/wire/index";
+import type { ImageContent, SessionEntry } from "@/collab/wire/index";
 import { playSound } from "@/lib/sound";
 import { abort, enqueuePrompt, removeQueuedPrompt, runCommand, sendPrompt, setApprovalMode, setModel, setThinkingLevel } from "@/state/threads";
-import type { ApprovalMode, ModelInfo, QueuedPrompt, Thread } from "@/state/types";
+import type { ApprovalMode, ModelInfo, QueuedPrompt, Thread, TimedAssistantMessage } from "@/state/types";
 import { QueuedPromptTray } from "./QueuedPromptTray";
 
 export type ComposerAttachment =
@@ -66,7 +66,7 @@ function getLatestPerfStats(entries: SessionEntry[]): PerfStats | null {
 	for (let i = entries.length - 1; i >= 0; i--) {
 		const entry = entries[i];
 		if (entry.type !== "message" || entry.message.role !== "assistant") continue;
-		const msg = entry.message as AssistantMessage;
+		const msg = entry.message as TimedAssistantMessage;
 		const usage = msg.usage;
 		const duration = msg.duration;
 		const ttft = msg.ttft;

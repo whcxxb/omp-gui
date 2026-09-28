@@ -183,6 +183,7 @@ export function App(): ReactNode {
 			}
 		};
 		window.addEventListener("keydown", onKeyDown);
+		return () => window.removeEventListener("keydown", onKeyDown);
 	}, [activeKey, activeProject]);
 	// 被进程池回收的对话在重新选中时自动恢复
 	useEffect(() => {

@@ -1,11 +1,15 @@
 import { execFile } from "node:child_process";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import { extname, join, relative } from "node:path";
 import { promisify } from "node:util";
 import type { FileItem, GitChangedFile, GitDiffOptions, GitFileStatus, GitStatusResult } from "@shared/ipc";
 import { shell } from "electron";
+import { loginEnv } from "./runtimes";
 
 const exec = promisify(execFile);
+
+/** 未跟踪文件预览上限，超过后不读取内容 */
+const MAX_UNTRACKED_BYTES = 1024 * 1024;
 
 const IGNORED_NAMES: Record<string, true> = {
 	".git": true,
@@ -204,12 +208,19 @@ export async function gitDiff(options: GitDiffOptions): Promise<string> {
 			return stdout;
 		}
 
-		// 若无 diff 且为未跟踪文件，直接读内容显示为全增
-		const fullPath = join(cwd, file);
-		const content = await readFile(fullPath, "utf-8");
-		const lines = content.split("\n");
-		const diffHeader = `diff --git a/${file} b/${file}\nnew file mode 100644\n--- /dev/null\n+++ b/${file}\n@@ -0,0 +1,${lines.length} @@\n`;
-		return diffHeader + lines.map(l => `+${l}`).join("\n");
+		// 若无 diff 且为未跟踪文件，与空文件对比显示为全增；二进制识别交给 git
+		const info = await stat(join(cwd, file));
+		if (info.isDirectory()) return "未跟踪的目录，请在文件树中查看其中的文件";
+		if (info.size > MAX_UNTRACKED_BYTES) return `文件过大（${Math.round(info.size / 1024)} KB），不显示预览`;
+		try {
+			await exec("git", ["diff", "--no-index", "--", "/dev/null", file], { cwd, maxBuffer: 10 * 1024 * 1024 });
+			return "";
+		} catch (e: unknown) {
+			// 存在差异时 git diff --no-index 以退出码 1 结束，输出仍在 stdout
+			const out = (e as { stdout?: string }).stdout;
+			if (out) return out;
+			throw e;
+		}
 	} catch (e: unknown) {
 		return (e as Error)?.message || "无法获取 Diff";
 	}
@@ -218,15 +229,11 @@ export async function gitDiff(options: GitDiffOptions): Promise<string> {
 export async function openInEditor(cwd: string, file: string): Promise<boolean> {
 	const fullPath = join(cwd, file);
 	try {
-		// 优先尝试使用 code (VS Code) 打开文件
-		await exec("code", [fullPath]);
+		// 优先尝试使用 code (VS Code) 打开文件；从访达启动时 PATH 很短，需用登录 shell 的环境
+		await exec("code", [fullPath], { env: loginEnv() });
 		return true;
 	} catch {
-		try {
-			await shell.openPath(fullPath);
-			return true;
-		} catch {
-			return false;
-		}
+		// openPath 失败时不抛异常，而是返回错误描述
+		return (await shell.openPath(fullPath)) === "";
 	}
 }

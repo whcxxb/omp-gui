@@ -24,6 +24,15 @@ export interface QueuedPrompt {
 	createdAt: number;
 }
 
+/** omp 实际下发、但上游 wire 类型未声明的计时与用量字段；collab 目录由同步脚本覆盖，扩展放在这里 */
+export type TimedAssistantMessage = AssistantMessage & {
+	/** 请求总耗时（毫秒） */
+	duration?: number;
+	/** 首 token 延迟（毫秒） */
+	ttft?: number;
+	usage: AssistantMessage["usage"] & { reasoningTokens?: number };
+};
+
 export interface ModelInfo {
 	provider: string;
 	id: string;

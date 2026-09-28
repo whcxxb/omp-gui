@@ -2,7 +2,7 @@
 import { existsSync } from "node:fs";
 import { open, readdir, stat, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, join, resolve, sep } from "node:path";
 import type { ProjectSummary, SessionSummary } from "@shared/ipc";
 
 const HEAD_BYTES = 64 * 1024;
@@ -114,7 +114,8 @@ export function groupProjects(sessions: SessionSummary[], extraPaths: string[], 
 export async function deleteSessionFile(file: string): Promise<boolean> {
 	const dir = resolve(sessionsDir());
 	const normalized = resolve(file);
-	if (!normalized.startsWith(dir)) {
+	// 带上分隔符，避免 sessions-other 之类的同前缀目录通过校验
+	if (!normalized.startsWith(dir + sep)) {
 		throw new Error("非法会话路径");
 	}
 	if (existsSync(normalized)) {

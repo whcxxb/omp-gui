@@ -50,7 +50,13 @@ async function run() {
 		};
 
 		console.log("1. 检查侧边栏与页面加载...");
-		const title = await evalJs("document.title");
+		// CDP 目标可能早于文档加载完成就出现，轮询等待标题
+		let title;
+		for (let i = 0; i < 50; i++) {
+			title = await evalJs("document.title");
+			if (title === "OMP") break;
+			await new Promise(r => setTimeout(r, 200));
+		}
 		if (title !== "OMP") throw new Error(`页面标题不匹配: ${title}`);
 
 		console.log("2. 等待项目加载并打开会话...");
@@ -106,9 +112,11 @@ async function run() {
 		await new Promise(r => setTimeout(r, 200));
 
 		console.log("5. 测试子任务看板展开与收起...");
-		const subBtn = await evalJs('!!document.querySelector(".mh-subagent-btn")');
-		if (!subBtn) throw new Error("未找到子任务看板按钮 .mh-subagent-btn");
-		await evalJs('document.querySelector(".mh-subagent-btn").click()');
+		// 标题栏的文件 / Git / 子任务共用 .mh-panel-btn，按文字区分
+		const findSubBtn = `[...document.querySelectorAll(".mh-panel-btn")].find(b => b.textContent.includes("子任务"))`;
+		const subBtn = await evalJs(`!!${findSubBtn}`);
+		if (!subBtn) throw new Error("未找到子任务看板按钮 .mh-panel-btn（子任务）");
+		await evalJs(`${findSubBtn}.click()`);
 		await new Promise(r => setTimeout(r, 200));
 		const panelOpen = await evalJs('!!document.querySelector(".sub-panel")');
 		if (!panelOpen) throw new Error("子任务看板未能成功展开 .sub-panel");

@@ -84,6 +84,8 @@ export class OmpRpc extends EventEmitter {
 
 		this.#child.stdout.on("data", (text: string) => this.#onData(text));
 		this.#child.stderr.on("data", (text: string) => this.emit("stderr", text));
+		// 进程已死但 exit 尚未触发时写入会报 EPIPE；不处理会成为主进程未捕获异常
+		this.#child.stdin.on("error", error => this.emit("stderr", `omp stdin 写入失败：${error.message}\n`));
 		this.#child.on("error", error => {
 			onFail(error);
 			this.#finish(null, null, error.message);
@@ -131,6 +133,7 @@ export class OmpRpc extends EventEmitter {
 	}
 
 	#write(frame: Frame): void {
+		if (!this.#child.stdin.writable) return;
 		this.#child.stdin.write(`${JSON.stringify(frame)}\n`);
 	}
 
