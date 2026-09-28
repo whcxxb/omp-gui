@@ -133,6 +133,7 @@ export interface OmpApi {
 	saveSkill(path: string, content: string): Promise<boolean>;
 	searchRegistrySkills(query: string): Promise<RegistrySkillHit[]>;
 	installRegistrySkill(name: string, isGlobal?: boolean, cwd?: string): Promise<{ ok: boolean; message: string }>;
+	generateTitle(prompt: string): Promise<string | null>;
 	onRuntime(listener: (runtimeId: string, message: RuntimeMessage) => void): () => void;
 	onProjectsChanged(listener: () => void): () => void;
 }

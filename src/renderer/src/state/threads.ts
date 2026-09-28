@@ -221,16 +221,47 @@ export async function closeThread(key: string): Promise<void> {
 	if (thread.runtimeId) await window.omp.closeRuntime(thread.runtimeId);
 }
 
-/** 发送提示；执行中时作为排队的后续消息。 */
+/** 发送提示；执行中时作为排队的后续消息。首次发送时自动调用模型总结简短标题。 */
 export async function sendPrompt(key: string, message: string, images?: ImageContent[]): Promise<void> {
 	const thread = getThread(key);
 	if (!thread?.runtimeId) return;
 	if (thread.status !== "ready") return;
+
+	const isFirstUserPrompt =
+		!thread.state?.sessionName &&
+		!thread.entries.some(e => e.type === "message" && e.message.role === "user");
+
 	const command: Frame = { type: "prompt", message };
 	if (images && images.length > 0) command.images = images;
 	if (thread.working) command.streamingBehavior = "followUp";
 	try {
 		await window.omp.request(thread.runtimeId, command);
+
+		// 第一次发送消息后自动使用模型进行简短总结，并持久化为会话标题
+		if (isFirstUserPrompt && message.trim()) {
+			void (async () => {
+				try {
+					const title = await window.omp.generateTitle(message);
+					if (title) {
+						const current = getThread(key);
+						if (current?.runtimeId) {
+							await window.omp.request(current.runtimeId, {
+								type: "set_session_name",
+								name: title,
+							});
+							update(key, t => ({
+								state: t.state
+									? { ...t.state, sessionName: title }
+									: { sessionId: "", sessionName: title, queuedMessageCount: 0, isStreaming: false },
+							}));
+							void refreshState(key);
+						}
+					}
+				} catch {
+					// 忽略静默标题生成失败
+				}
+			})();
+		}
 	} catch (error) {
 		update(key, t => pushNotice(t, "error", error instanceof Error ? error.message : String(error)));
 	}

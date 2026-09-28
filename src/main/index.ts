@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import type { ApprovalMode, GitDiffOptions, OpenSessionOptions, Theme } from "@shared/ipc";
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from "electron";
 import { gitDiff, gitStatus, listDir, openInEditor } from "./git-fs";
-import { detectDefaultApprovalMode, ompVersion, RuntimePool } from "./runtimes";
+import { detectDefaultApprovalMode, loginEnv, ompVersion, resolveOmp, RuntimePool } from "./runtimes";
 import { deleteSessionFile, groupProjects, scanSessions, sessionsDir } from "./sessions";
 import { readStore, writeStore } from "./store";
 
@@ -25,6 +25,20 @@ const WINDOW_BACKGROUND: Record<Theme, { dark: string; light: string }> = {
 function windowBackground(): string {
 	const colors = WINDOW_BACKGROUND[readStore().theme ?? "default"] ?? WINDOW_BACKGROUND.default;
 	return nativeTheme.shouldUseDarkColors ? colors.dark : colors.light;
+}
+
+function cleanTitle(raw: string): string | null {
+	if (!raw) return null;
+	let text = raw.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, "");
+	text = text.replace(/^(?:Working|Thinking|Loading)\.{3,}\s*/i, "");
+	text = text.replace(/<\/?title>/gi, "");
+	text = text.replace(/^[#*\-•\s]+|[*\s]+$/g, "");
+	text = text.replace(/^(?:会话标题|对话标题|简短标题|标题|Title)\s*[:：]\s*/i, "");
+	text = text.replace(/^[“"‘'《「『【]+|[”"’'》」』】\s]+$/g, "");
+	text = text.replace(/[。？！?!,.，、\s]+$/g, "");
+	text = text.trim();
+	const firstLine = text.split("\n").map(l => l.trim()).find(l => l.length > 0) || "";
+	return firstLine.slice(0, 24).trim() || null;
 }
 
 function createWindow(): void {
@@ -162,6 +176,28 @@ function registerIpc(): void {
 	ipcMain.handle("omp:save-skill", (_e, path: string, content: string) => saveSkillContent(path, content));
 	ipcMain.handle("omp:search-registry-skills", (_e, query: string) => searchSkillshare(query));
 	ipcMain.handle("omp:install-registry-skill", (_e, name: string, isGlobal?: boolean, cwd?: string) => installSkillshare(name, isGlobal, cwd));
+	ipcMain.handle("omp:generate-title", async (_e, prompt: string) => {
+		const ompPath = resolveOmp();
+		if (!ompPath) return null;
+		const cleanPrompt = prompt.replace(/\s+/g, " ").trim().slice(0, 300);
+		if (!cleanPrompt) return null;
+
+		try {
+			const { stdout } = await promisify(execFile)(
+				ompPath,
+				[
+					"-p",
+					"--no-tools",
+					"--thinking=off",
+					`请用4到10个字概括以下需求的简短标题，只输出标题文字本身，不要标点符号、书名号或任何解释：\n${cleanPrompt}`,
+				],
+				{ env: loginEnv(), timeout: 15000 },
+			);
+			return cleanTitle(stdout);
+		} catch {
+			return null;
+		}
+	});
 }
 
 app.whenReady().then(() => {

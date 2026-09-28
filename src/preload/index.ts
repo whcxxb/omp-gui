@@ -35,6 +35,7 @@ const api: OmpApi = {
 	saveSkill: (path, content) => ipcRenderer.invoke("omp:save-skill", path, content),
 	searchRegistrySkills: query => ipcRenderer.invoke("omp:search-registry-skills", query),
 	installRegistrySkill: (name, isGlobal, cwd) => ipcRenderer.invoke("omp:install-registry-skill", name, isGlobal, cwd),
+	generateTitle: prompt => ipcRenderer.invoke("omp:generate-title", prompt),
 	onRuntime(listener) {
 		const handler = (_e: unknown, runtimeId: string, message: RuntimeMessage) => listener(runtimeId, message);
 		ipcRenderer.on("omp:runtime", handler);
