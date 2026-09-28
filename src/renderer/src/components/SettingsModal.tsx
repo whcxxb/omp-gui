@@ -1,4 +1,5 @@
 import {
+	ArrowLeft,
 	Bot,
 	Brain,
 	Check,
@@ -9,6 +10,7 @@ import {
 	Keyboard,
 	Palette,
 	RotateCw,
+	Search,
 	Settings,
 	Shield,
 	ShieldAlert,
@@ -18,16 +20,18 @@ import {
 	X,
 	Zap,
 } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import type { ApprovalMode } from "@shared/ipc";
 import { THEMES, type Theme, applyTheme, loadTheme } from "@/lib/theme";
 import { getSoundVolume, isSoundEnabled, playSound, setSoundEnabled, setSoundVolume } from "@/lib/sound";
+import { SkillManager } from "./SkillManager";
 
 export interface SettingsModalProps {
 	isOpen: boolean;
 	onClose(): void;
 	ompVersion: string | null;
 	onResetSidebarWidth(): void;
+	activeProject?: string | null;
 }
 
 type SettingsTab =
@@ -35,11 +39,11 @@ type SettingsTab =
 	| "approvals"
 	| "reasoning"
 	| "memory"
+	| "skills"
 	| "engine"
 	| "sound"
 	| "shortcuts"
 	| "about";
-
 interface TabItem {
 	id: SettingsTab;
 	label: string;
@@ -52,9 +56,10 @@ const TABS: TabItem[] = [
 	{ id: "approvals", label: "权限与审批", desc: "工具调用与安全策略", icon: <Shield size={15} /> },
 	{ id: "reasoning", label: "模型与推理", desc: "思考深度与推理设置", icon: <Bot size={15} /> },
 	{ id: "memory", label: "记忆与知识", desc: "长效记忆 (Mnemopi/Hermes)", icon: <Brain size={15} /> },
+	{ id: "skills", label: "Skill 技能管理", desc: "项目与全局专业技能扩展", icon: <Sparkles size={15} /> },
 	{ id: "engine", label: "OMP 核心工具", desc: "LSP、终端与环境感知", icon: <Cpu size={15} /> },
 	{ id: "sound", label: "交互音效", desc: "Cuelume 声音反馈", icon: <Volume2 size={15} /> },
-	{ id: "shortcuts", label: "快捷键", desc: "全局与高频快捷键速查", icon: <Keyboard size={15} /> },
+	{ id: "shortcuts", label: "快捷键速查", desc: "全局与高频快捷键速查", icon: <Keyboard size={15} /> },
 	{ id: "about", label: "关于与环境", desc: "版本信息与运行时诊断", icon: <Info size={15} /> },
 ];
 
@@ -117,8 +122,9 @@ const SHORTCUTS = [
 ];
 
 export function SettingsModal(props: SettingsModalProps): ReactNode {
-	const { isOpen, onClose, ompVersion, onResetSidebarWidth } = props;
+	const { isOpen, onClose, ompVersion, onResetSidebarWidth, activeProject } = props;
 	const [activeTab, setActiveTab] = useState<SettingsTab>("appearance");
+	const [navFilter, setNavFilter] = useState("");
 
 	// GUI 偏好
 	const [theme, setTheme] = useState<Theme>(loadTheme);
@@ -157,6 +163,11 @@ export function SettingsModal(props: SettingsModalProps): ReactNode {
 		return () => window.removeEventListener("keydown", handleKeyDown);
 	}, [isOpen, onClose]);
 
+	const filteredTabs = useMemo(() => {
+		const q = navFilter.trim().toLowerCase();
+		if (!q) return TABS;
+		return TABS.filter(t => t.label.toLowerCase().includes(q) || t.desc.toLowerCase().includes(q));
+	}, [navFilter]);
 	if (!isOpen) return null;
 
 	const updateOmpConfig = async (key: string, value: string): Promise<void> => {
@@ -176,41 +187,64 @@ export function SettingsModal(props: SettingsModalProps): ReactNode {
 		playSound("toggle");
 	};
 
+
 	return (
-		<div
-			className="set-overlay"
-			onClick={e => {
-				if (e.target === e.currentTarget) onClose();
-			}}
-		>
+		<div className="set-overlay">
 			<div className="set-dialog set-dialog-wide" role="dialog" aria-modal="true" aria-label="设置">
 				<header className="set-header">
-					<div className="set-header-title">
-						<Settings size={16} />
-						<span>设置</span>
+					<div className="set-header-left">
+						<button type="button" className="set-back-btn" onClick={onClose} title="返回 (Esc)">
+							<ArrowLeft size={16} />
+							<span>返回工作区</span>
+						</button>
+						<div className="set-header-divider" />
+						<div className="set-header-title">
+							<Settings size={16} />
+							<span>应用偏好与核心设置</span>
+						</div>
 					</div>
-					<button type="button" className="set-close-btn" onClick={onClose} title="关闭 (Esc)">
-						<X size={15} />
-					</button>
+					<div className="set-header-right">
+						<span className="set-esc-hint">按 ESC 快速退出</span>
+						<button type="button" className="set-close-btn" onClick={onClose} title="关闭 (Esc)">
+							<X size={16} />
+						</button>
+					</div>
 				</header>
 
 				<div className="set-split-body">
 					{/* 左侧分类导航 */}
 					<aside className="set-split-nav">
-						{TABS.map(tab => (
-							<button
-								key={tab.id}
-								type="button"
-								className={`set-split-nav-item${activeTab === tab.id ? " is-active" : ""}`}
-								onClick={() => setActiveTab(tab.id)}
-							>
-								<span className="set-split-nav-icon">{tab.icon}</span>
-								<div className="set-split-nav-meta">
-									<span className="set-split-nav-label">{tab.label}</span>
-									<span className="set-split-nav-desc">{tab.desc}</span>
-								</div>
-							</button>
-						))}
+						<div className="set-nav-filter-box">
+							<Search size={13} className="set-nav-filter-icon" />
+							<input
+								type="text"
+								className="set-nav-filter-input"
+								placeholder="搜索设置项..."
+								value={navFilter}
+								onChange={e => setNavFilter(e.target.value)}
+							/>
+							{navFilter && (
+								<button type="button" className="sk-filter-clear" onClick={() => setNavFilter("")}>
+									<X size={11} />
+								</button>
+							)}
+						</div>
+						<div className="set-nav-list">
+							{filteredTabs.map(tab => (
+								<button
+									key={tab.id}
+									type="button"
+									className={`set-split-nav-item${activeTab === tab.id ? " is-active" : ""}`}
+									onClick={() => setActiveTab(tab.id)}
+								>
+									<span className="set-split-nav-icon">{tab.icon}</span>
+									<div className="set-split-nav-meta">
+										<span className="set-split-nav-label">{tab.label}</span>
+										<span className="set-split-nav-desc">{tab.desc}</span>
+									</div>
+								</button>
+							))}
+						</div>
 					</aside>
 
 					{/* 右侧详细设置面板 */}
@@ -539,6 +573,9 @@ export function SettingsModal(props: SettingsModalProps): ReactNode {
 								</div>
 							</div>
 						)}
+
+						{/* 5. Skill 技能管理 */}
+						{activeTab === "skills" && <SkillManager activeProject={activeProject} />}
 
 						{/* 4. OMP 核心工具 */}
 						{activeTab === "engine" && (

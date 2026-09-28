@@ -28,7 +28,6 @@ async function run() {
 
 		const ws = new WebSocket(page.webSocketDebuggerUrl);
 		await new Promise(r => (ws.onopen = r));
-
 		let seq = 0;
 		const send = (method, params = {}) =>
 			new Promise(resolve => {
@@ -43,6 +42,14 @@ async function run() {
 				ws.addEventListener("message", onMsg);
 				ws.send(JSON.stringify({ id, method, params }));
 			});
+
+		ws.addEventListener("message", evt => {
+			const d = JSON.parse(evt.data);
+			if (d.method === "Runtime.exceptionThrown") {
+				console.error("PAGE EXCEPTION:", JSON.stringify(d.params));
+			}
+		});
+		await send("Runtime.enable");
 
 		const evalJs = async expr => {
 			const res = await send("Runtime.evaluate", { expression: expr, awaitPromise: true, returnByValue: true });
@@ -233,7 +240,18 @@ async function run() {
 		const hasMemorySection = await evalJs('!!document.querySelector(".sp-section-heading") && document.querySelector(".sp-section-heading").textContent.includes("长效记忆系统")');
 		if (!hasMemorySection) throw new Error("切换记忆与知识选项卡失败，未找到标题");
 		console.log("   切换记忆与知识选项卡并加载记忆配置成功");
-		// 点击关闭按钮关闭弹窗
+
+		// 测试切换到“Skill 技能管理”选项卡
+		await evalJs(`(() => {
+			const navItems = document.querySelectorAll(".set-split-nav-item");
+			const skillTab = [...navItems].find(item => item.textContent.includes("Skill"));
+			if (skillTab) skillTab.click();
+		})()`);
+		await new Promise(r => setTimeout(r, 300));
+		const hasSkillSection = await evalJs('!!document.querySelector(".sk-container")');
+		if (!hasSkillSection) throw new Error("切换 Skill 技能管理选项卡失败，未找到 .sk-container");
+		const skillCountText = await evalJs('document.querySelector(".sk-tab")?.textContent');
+		console.log("   切换 Skill 技能管理选项卡成功，标签展示:", skillCountText);
 		await evalJs('document.querySelector(".set-close-btn")?.click()');
 		await new Promise(r => setTimeout(r, 200));
 		const setClosed = await evalJs('!document.querySelector(".set-dialog-wide")');

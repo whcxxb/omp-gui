@@ -248,6 +248,7 @@ export function App(): ReactNode {
 				onClose={() => setSettingsOpen(false)}
 				ompVersion={ompVersion}
 				onResetSidebarWidth={resetSidebarWidth}
+				activeProject={activeProject}
 			/>
 		</div>
 	);

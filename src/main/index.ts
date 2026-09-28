@@ -1,3 +1,4 @@
+import { createLocalSkill, deleteLocalSkill, installSkillshare, listLocalSkills, readSkillContent, saveSkillContent, searchSkillshare } from "./skills";
 import { execFile } from "node:child_process";
 import { existsSync, watch } from "node:fs";
 import { join } from "node:path";
@@ -154,6 +155,13 @@ function registerIpc(): void {
 	ipcMain.handle("omp:git-status", (_e, cwd: string) => gitStatus(cwd));
 	ipcMain.handle("omp:git-diff", (_e, options: GitDiffOptions) => gitDiff(options));
 	ipcMain.handle("omp:open-in-editor", (_e, cwd: string, file: string) => openInEditor(cwd, file));
+	ipcMain.handle("omp:list-skills", (_e, cwd?: string) => listLocalSkills(cwd));
+	ipcMain.handle("omp:create-skill", (_e, options) => createLocalSkill(options));
+	ipcMain.handle("omp:delete-skill", (_e, path: string) => deleteLocalSkill(path));
+	ipcMain.handle("omp:read-skill", (_e, path: string) => readSkillContent(path));
+	ipcMain.handle("omp:save-skill", (_e, path: string, content: string) => saveSkillContent(path, content));
+	ipcMain.handle("omp:search-registry-skills", (_e, query: string) => searchSkillshare(query));
+	ipcMain.handle("omp:install-registry-skill", (_e, name: string, isGlobal?: boolean, cwd?: string) => installSkillshare(name, isGlobal, cwd));
 }
 
 app.whenReady().then(() => {

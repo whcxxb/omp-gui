@@ -65,6 +65,25 @@ export interface GitDiffOptions {
 	staged?: boolean;
 }
 
+export interface SkillItem {
+	name: string;
+	description: string;
+	scope: "project" | "global";
+	path: string;
+	dir: string;
+}
+
+export interface RegistrySkillHit {
+	name: string;
+	scope?: string;
+	version?: string;
+	description?: string;
+	weeklyDownloads?: number;
+	updatedAt?: number;
+	publisher?: { username: string };
+	keywords?: string[];
+}
+
 export interface RuntimeInfo {
 	runtimeId: string;
 	cwd: string;
@@ -107,6 +126,13 @@ export interface OmpApi {
 	gitStatus(cwd: string): Promise<GitStatusResult>;
 	gitDiff(options: GitDiffOptions): Promise<string>;
 	openInEditor(cwd: string, file: string): Promise<boolean>;
+	listSkills(cwd?: string): Promise<SkillItem[]>;
+	createSkill(options: { name: string; description: string; scope: "project" | "global"; cwd?: string }): Promise<{ ok: boolean; path?: string; error?: string }>;
+	deleteSkill(path: string): Promise<boolean>;
+	readSkill(path: string): Promise<string>;
+	saveSkill(path: string, content: string): Promise<boolean>;
+	searchRegistrySkills(query: string): Promise<RegistrySkillHit[]>;
+	installRegistrySkill(name: string, isGlobal?: boolean, cwd?: string): Promise<{ ok: boolean; message: string }>;
 	onRuntime(listener: (runtimeId: string, message: RuntimeMessage) => void): () => void;
 	onProjectsChanged(listener: () => void): () => void;
 }

@@ -28,6 +28,13 @@ const api: OmpApi = {
 	gitStatus: cwd => ipcRenderer.invoke("omp:git-status", cwd),
 	gitDiff: options => ipcRenderer.invoke("omp:git-diff", options),
 	openInEditor: (cwd, file) => ipcRenderer.invoke("omp:open-in-editor", cwd, file),
+	listSkills: cwd => ipcRenderer.invoke("omp:list-skills", cwd),
+	createSkill: options => ipcRenderer.invoke("omp:create-skill", options),
+	deleteSkill: path => ipcRenderer.invoke("omp:delete-skill", path),
+	readSkill: path => ipcRenderer.invoke("omp:read-skill", path),
+	saveSkill: (path, content) => ipcRenderer.invoke("omp:save-skill", path, content),
+	searchRegistrySkills: query => ipcRenderer.invoke("omp:search-registry-skills", query),
+	installRegistrySkill: (name, isGlobal, cwd) => ipcRenderer.invoke("omp:install-registry-skill", name, isGlobal, cwd),
 	onRuntime(listener) {
 		const handler = (_e: unknown, runtimeId: string, message: RuntimeMessage) => listener(runtimeId, message);
 		ipcRenderer.on("omp:runtime", handler);
