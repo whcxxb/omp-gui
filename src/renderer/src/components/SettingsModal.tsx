@@ -1,5 +1,6 @@
 import {
 	Bot,
+	Brain,
 	Check,
 	Cpu,
 	Folder,
@@ -12,6 +13,7 @@ import {
 	Shield,
 	ShieldAlert,
 	ShieldCheck,
+	Sparkles,
 	Volume2,
 	X,
 	Zap,
@@ -32,6 +34,7 @@ type SettingsTab =
 	| "appearance"
 	| "approvals"
 	| "reasoning"
+	| "memory"
 	| "engine"
 	| "sound"
 	| "shortcuts"
@@ -48,6 +51,7 @@ const TABS: TabItem[] = [
 	{ id: "appearance", label: "外观与主题", desc: "配色风格与界面布局", icon: <Palette size={15} /> },
 	{ id: "approvals", label: "权限与审批", desc: "工具调用与安全策略", icon: <Shield size={15} /> },
 	{ id: "reasoning", label: "模型与推理", desc: "思考深度与推理设置", icon: <Bot size={15} /> },
+	{ id: "memory", label: "记忆与知识", desc: "长效记忆 (Mnemopi/Hermes)", icon: <Brain size={15} /> },
 	{ id: "engine", label: "OMP 核心工具", desc: "LSP、终端与环境感知", icon: <Cpu size={15} /> },
 	{ id: "sound", label: "交互音效", desc: "Cuelume 声音反馈", icon: <Volume2 size={15} /> },
 	{ id: "shortcuts", label: "快捷键", desc: "全局与高频快捷键速查", icon: <Keyboard size={15} /> },
@@ -81,6 +85,24 @@ const THINKING_LEVELS = [
 	{ id: "medium", label: "中等 (medium)", desc: "常规思考，平衡质量与速度" },
 	{ id: "high", label: "高深度 (high)", desc: "推荐默认，适合复杂编码与重构" },
 	{ id: "max", label: "极限思考 (max)", desc: "全力推理，深度解决疑难架构问题" },
+];
+
+const MEMORY_BACKENDS = [
+	{ id: "off", label: "关闭记忆 (off)", desc: "不启用任何长效记忆系统" },
+	{ id: "mnemopi", label: "Mnemopi 神经记忆 (类似 Hermes，推荐)", desc: "本地 SQLite 向量/图谱/全文检索，支持 recall/retain 工具" },
+	{ id: "local", label: "Local 文档摘要", desc: "定期提取历史会话并生成 MEMORY.md 长期项目文档" },
+	{ id: "hindsight", label: "Hindsight 远端记忆", desc: "连接外部 Hindsight Vectorize 服务" },
+];
+
+const MNEMOPI_SCOPINGS = [
+	{ id: "per-project-tagged", label: "项目写入 + 全局共享读 (per-project-tagged，推荐)", desc: "新记忆归属当前项目，同时可检索全局跨项目经验" },
+	{ id: "per-project", label: "项目完全隔离 (per-project)", desc: "每个项目的记忆独立存储与检索，互不干扰" },
+	{ id: "global", label: "全局单一存储库 (global)", desc: "所有项目共享同一个记忆数据库" },
+];
+
+const EMBEDDING_VARIANTS = [
+	{ id: "en", label: "英文增强模型 (bge-base-en-v1.5)" },
+	{ id: "multilingual", label: "多语言模型 (multilingual-e5-large)" },
 ];
 
 const SHORTCUTS = [
@@ -330,6 +352,187 @@ export function SettingsModal(props: SettingsModalProps): ReactNode {
 												className="set-switch"
 												checked={ompConfigs["magicKeywords.ultrathink"] !== false}
 												onChange={e => void updateOmpConfig("magicKeywords.ultrathink", String(e.target.checked))}
+											/>
+										</div>
+									</div>
+								</div>
+							</div>
+						)}
+
+						{/* 4. 记忆与知识 (Mnemopi/Hermes) */}
+						{activeTab === "memory" && (
+							<div className="sp-section">
+								<h2 className="sp-section-heading">长效记忆系统 (Mnemopi / Hermes-like)</h2>
+								<p className="sp-section-sub">
+									赋能 Agent 跨会话的记忆持久化能力，自动提炼开发规范、项目偏好与经验事实，并在新任务中自动召回。
+								</p>
+
+								<div className="sp-card-group">
+									{/* 记忆后端选择 */}
+									<div className="sp-card">
+										<div className="sp-card-info">
+											<span className="sp-card-title">记忆引擎后端 (memory.backend)</span>
+											<span className="sp-card-desc">选择持久化记忆的存储与检索机制。</span>
+										</div>
+										<select
+											className="sp-select"
+											value={String(ompConfigs["memory.backend"] ?? "off")}
+											onChange={e => void updateOmpConfig("memory.backend", e.target.value)}
+										>
+											{MEMORY_BACKENDS.map(b => (
+												<option key={b.id} value={b.id}>
+													{b.label}
+												</option>
+											))}
+										</select>
+									</div>
+
+									{/* Mnemopi 专属配置 */}
+									{ompConfigs["memory.backend"] === "mnemopi" && (
+										<>
+											<div className="sp-card">
+												<div className="sp-card-info">
+													<span className="sp-card-title">知识隔离与作用域 (mnemopi.scoping)</span>
+													<span className="sp-card-desc">
+														控制记忆在项目与全局间的可见性规则。
+													</span>
+												</div>
+												<select
+													className="sp-select"
+													value={String(ompConfigs["mnemopi.scoping"] ?? "per-project-tagged")}
+													onChange={e => void updateOmpConfig("mnemopi.scoping", e.target.value)}
+												>
+													{MNEMOPI_SCOPINGS.map(s => (
+														<option key={s.id} value={s.id}>
+															{s.label}
+														</option>
+													))}
+												</select>
+											</div>
+
+											<div className="sp-card">
+												<div className="sp-card-row">
+													<div className="sp-card-info">
+														<span className="sp-card-title">首轮自动召回相关记忆 (mnemopi.autoRecall)</span>
+														<span className="sp-card-desc">
+															会话开始或首轮提问时，自动从记忆库检索相关经验并注入提示词。
+														</span>
+													</div>
+													<input
+														type="checkbox"
+														className="set-switch"
+														checked={ompConfigs["mnemopi.autoRecall"] !== false}
+														onChange={e => void updateOmpConfig("mnemopi.autoRecall", String(e.target.checked))}
+													/>
+												</div>
+											</div>
+
+											<div className="sp-card">
+												<div className="sp-card-row">
+													<div className="sp-card-info">
+														<span className="sp-card-title">定期自动沉淀记忆 (mnemopi.autoRetain)</span>
+														<span className="sp-card-desc">
+															每隔若干轮对话，自动在后台抽取重要事实、决策和技术栈偏好保存入库。
+														</span>
+													</div>
+													<input
+														type="checkbox"
+														className="set-switch"
+														checked={ompConfigs["mnemopi.autoRetain"] !== false}
+														onChange={e => void updateOmpConfig("mnemopi.autoRetain", String(e.target.checked))}
+													/>
+												</div>
+											</div>
+
+											<div className="sp-card">
+												<div className="sp-card-row">
+													<div className="sp-card-info">
+														<span className="sp-card-title">纯全文检索模式 (mnemopi.noEmbeddings)</span>
+														<span className="sp-card-desc">
+															强制使用 SQLite FTS 全文检索；无需下载或配置向量嵌入模型。
+														</span>
+													</div>
+													<input
+														type="checkbox"
+														className="set-switch"
+														checked={Boolean(ompConfigs["mnemopi.noEmbeddings"])}
+														onChange={e => void updateOmpConfig("mnemopi.noEmbeddings", String(e.target.checked))}
+													/>
+												</div>
+											</div>
+
+											{!ompConfigs["mnemopi.noEmbeddings"] && (
+												<div className="sp-card">
+													<div className="sp-card-info">
+														<span className="sp-card-title">本地向量嵌入模型 (mnemopi.embeddingVariant)</span>
+														<span className="sp-card-desc">
+															本地离线计算向量所使用的模型变体（需提前下载或在线加载）。
+														</span>
+													</div>
+													<select
+														className="sp-select"
+														value={String(ompConfigs["mnemopi.embeddingVariant"] ?? "en")}
+														onChange={e => void updateOmpConfig("mnemopi.embeddingVariant", e.target.value)}
+													>
+														{EMBEDDING_VARIANTS.map(v => (
+															<option key={v.id} value={v.id}>
+																{v.label}
+															</option>
+														))}
+													</select>
+												</div>
+											)}
+
+											<div className="sp-card">
+												<div className="sp-card-row">
+													<div className="sp-card-info">
+														<span className="sp-card-title">四路混合召回 (mnemopi.polyphonicRecall)</span>
+														<span className="sp-card-desc">
+															融合向量、知识图谱、离散事实与时间维度的 4-Voice 综合排序。
+														</span>
+													</div>
+													<input
+														type="checkbox"
+														className="set-switch"
+														checked={Boolean(ompConfigs["mnemopi.polyphonicRecall"])}
+														onChange={e => void updateOmpConfig("mnemopi.polyphonicRecall", String(e.target.checked))}
+													/>
+												</div>
+											</div>
+
+											<div className="sp-card">
+												<div className="sp-card-row">
+													<div className="sp-card-info">
+														<span className="sp-card-title">主动关系链接 (mnemopi.proactiveLinking)</span>
+														<span className="sp-card-desc">
+															新记忆入库时自动构建与已有实体、经验节点之间的关联图谱。
+														</span>
+													</div>
+													<input
+														type="checkbox"
+														className="set-switch"
+														checked={Boolean(ompConfigs["mnemopi.proactiveLinking"])}
+														onChange={e => void updateOmpConfig("mnemopi.proactiveLinking", String(e.target.checked))}
+													/>
+												</div>
+											</div>
+										</>
+									)}
+
+									{/* 经验沉淀 (Autolearn) */}
+									<div className="sp-card">
+										<div className="sp-card-row">
+											<div className="sp-card-info">
+												<span className="sp-card-title">任务结束经验自动沉淀 (autolearn.enabled)</span>
+												<span className="sp-card-desc">
+													单次复杂任务完成后，提醒或自动提炼教训与技巧写入 learned.md 或 Mnemopi 记忆库。
+												</span>
+											</div>
+											<input
+												type="checkbox"
+												className="set-switch"
+												checked={Boolean(ompConfigs["autolearn.enabled"])}
+												onChange={e => void updateOmpConfig("autolearn.enabled", String(e.target.checked))}
 											/>
 										</div>
 									</div>

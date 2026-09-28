@@ -223,16 +223,16 @@ async function run() {
 		if (themeAttr !== "claude") throw new Error(`主题切换失败，期望 claude，实得: ${themeAttr}`);
 		console.log("   在设置弹窗中切换主题成功:", themeAttr);
 
-		// 测试切换到“模型与推理”选项卡
+		// 测试切换到“记忆与知识”选项卡
 		await evalJs(`(() => {
 			const navItems = document.querySelectorAll(".set-split-nav-item");
-			if (navItems[2]) navItems[2].click();
+			const memTab = [...navItems].find(item => item.textContent.includes("记忆与知识"));
+			if (memTab) memTab.click();
 		})()`);
 		await new Promise(r => setTimeout(r, 100));
-		const hasSelect = await evalJs('!!document.querySelector(".sp-select")');
-		if (!hasSelect) throw new Error("未找到模型思考深度下拉选择器 .sp-select");
-		console.log("   切换设置选项卡并加载 OMP 配置成功");
-
+		const hasMemorySection = await evalJs('!!document.querySelector(".sp-section-heading") && document.querySelector(".sp-section-heading").textContent.includes("长效记忆系统")');
+		if (!hasMemorySection) throw new Error("切换记忆与知识选项卡失败，未找到标题");
+		console.log("   切换记忆与知识选项卡并加载记忆配置成功");
 		// 点击关闭按钮关闭弹窗
 		await evalJs('document.querySelector(".set-close-btn")?.click()');
 		await new Promise(r => setTimeout(r, 200));
