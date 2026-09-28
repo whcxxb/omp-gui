@@ -2,8 +2,9 @@ import { execFile } from "node:child_process";
 import { existsSync, watch } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import type { ApprovalMode, OpenSessionOptions, Theme } from "@shared/ipc";
+import type { ApprovalMode, GitDiffOptions, OpenSessionOptions, Theme } from "@shared/ipc";
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from "electron";
+import { gitDiff, gitStatus, listDir, openInEditor } from "./git-fs";
 import { detectDefaultApprovalMode, ompVersion, RuntimePool } from "./runtimes";
 import { deleteSessionFile, groupProjects, scanSessions, sessionsDir } from "./sessions";
 import { readStore, writeStore } from "./store";
@@ -149,6 +150,10 @@ function registerIpc(): void {
 		win?.setBackgroundColor(windowBackground());
 	});
 	ipcMain.handle("omp:reveal", (_e, path: string) => shell.showItemInFolder(path));
+	ipcMain.handle("omp:list-dir", (_e, cwd: string, subpath?: string) => listDir(cwd, subpath));
+	ipcMain.handle("omp:git-status", (_e, cwd: string) => gitStatus(cwd));
+	ipcMain.handle("omp:git-diff", (_e, options: GitDiffOptions) => gitDiff(options));
+	ipcMain.handle("omp:open-in-editor", (_e, cwd: string, file: string) => openInEditor(cwd, file));
 }
 
 app.whenReady().then(() => {

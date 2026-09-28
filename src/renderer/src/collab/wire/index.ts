@@ -56,7 +56,8 @@ export interface WireUsage {
 	cacheRead: number;
 	cacheWrite: number;
 	totalTokens: number;
-	cost: { total: number };
+	reasoningTokens?: number;
+	cost?: { total: number };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -86,8 +87,10 @@ export interface AssistantMessage {
 	stopReason: StopReason;
 	errorMessage?: string;
 	timestamp: number;
+	duration?: number;
+	ttft?: number;
+	provider?: string;
 }
-
 export interface ToolResultMessage {
 	role: "toolResult";
 	toolCallId: string;

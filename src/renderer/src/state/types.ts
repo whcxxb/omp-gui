@@ -68,7 +68,7 @@ export interface SubagentSnapshot {
 	parentToolCallId?: string;
 	error?: string;
 }
-
+export type RightPanelTab = "files" | "git" | "subagents";
 
 /** get_state 的子集 */
 export interface SessionStateSnapshot {
@@ -113,6 +113,8 @@ export interface Thread {
 	state: SessionStateSnapshot | null;
 	subagents: SubagentSnapshot[];
 	activeSubagentId: string | null;
+	isRightPanelOpen: boolean;
+	rightPanelTab: RightPanelTab;
 	isSubagentPanelOpen: boolean;
 	uiRequests: UiRequest[];
 	queuedPrompts: QueuedPrompt[];

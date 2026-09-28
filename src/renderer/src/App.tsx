@@ -1,10 +1,10 @@
-import { Download, FolderOpen, FolderPlus, PanelLeft, RotateCw, Shield, ShieldAlert, ShieldCheck, Workflow, X } from "lucide-react";
+import { Download, FolderOpen, FolderPlus, FolderTree, GitBranch, PanelLeft, RotateCw, Shield, ShieldAlert, ShieldCheck, Workflow, X } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import type { ProjectSummary, SessionSummary } from "@shared/ipc";
 import { APPROVAL_CONFIG, Composer } from "./components/Composer";
 import { Sidebar } from "./components/Sidebar";
 import { ThreadView } from "./components/ThreadView";
-import { SubagentPanel } from "./components/SubagentPanel";
+import { RightPanel } from "./components/RightPanel";
 import { CommandPalette } from "./components/CommandPalette";
 import { SettingsModal } from "./components/SettingsModal";
 import { UiRequestCard } from "./components/UiRequestCard";
@@ -19,6 +19,7 @@ import {
 	handleRuntimeMessage,
 	openThread,
 	reconnect,
+	toggleRightPanel,
 	toggleSubagentPanel,
 	useThreads,
 } from "./state/threads";
@@ -154,6 +155,27 @@ export function App(): ReactNode {
 				setSidebarOpen(v => !v);
 				return;
 			}
+			if (e.key === "j" || e.key === "J") {
+				if (activeKey) {
+					e.preventDefault();
+					toggleRightPanel(activeKey);
+				}
+				return;
+			}
+			if (e.shiftKey && (e.key === "e" || e.key === "E")) {
+				if (activeKey) {
+					e.preventDefault();
+					toggleRightPanel(activeKey, "files");
+				}
+				return;
+			}
+			if (e.shiftKey && (e.key === "g" || e.key === "G")) {
+				if (activeKey) {
+					e.preventDefault();
+					toggleRightPanel(activeKey, "git");
+				}
+				return;
+			}
 			if (e.key === "," || e.key === "，") {
 				e.preventDefault();
 				setSettingsOpen(v => !v);
@@ -161,7 +183,6 @@ export function App(): ReactNode {
 			}
 		};
 		window.addEventListener("keydown", onKeyDown);
-		return () => window.removeEventListener("keydown", onKeyDown);
 	}, [activeKey, activeProject]);
 	// 被进程池回收的对话在重新选中时自动恢复
 	useEffect(() => {
@@ -279,20 +300,42 @@ function ThreadPane({
 						</div>
 					);
 				})()}
-				<button
-					type="button"
-					className={`mh-subagent-btn${thread.isSubagentPanelOpen ? " is-active" : ""}`}
-					title={thread.isSubagentPanelOpen ? "收起子任务看板" : "展开子任务看板"}
-					onClick={() => toggleSubagentPanel(thread.key)}
-				>
-					<Workflow size={13} />
-					<span>子任务</span>
-					{thread.subagents && thread.subagents.length > 0 && (
-						<span className="mh-subagent-badge">
-							{thread.subagents.filter(s => s.status === "started" || s.status === "running").length || thread.subagents.length}
-						</span>
-					)}
-				</button>
+				<div className="mh-panel-group">
+					<button
+						type="button"
+						className={`mh-panel-btn${thread.isRightPanelOpen && thread.rightPanelTab === "files" ? " is-active" : ""}`}
+						title={thread.isRightPanelOpen && thread.rightPanelTab === "files" ? "收起文件树" : "查看项目文件树"}
+						onClick={() => toggleRightPanel(thread.key, "files")}
+					>
+						<FolderTree size={13} />
+						<span>文件</span>
+					</button>
+
+					<button
+						type="button"
+						className={`mh-panel-btn${thread.isRightPanelOpen && thread.rightPanelTab === "git" ? " is-active" : ""}`}
+						title={thread.isRightPanelOpen && thread.rightPanelTab === "git" ? "收起 Git 状态" : "查看 Git 变更"}
+						onClick={() => toggleRightPanel(thread.key, "git")}
+					>
+						<GitBranch size={13} />
+						<span>Git</span>
+					</button>
+
+					<button
+						type="button"
+						className={`mh-panel-btn${thread.isRightPanelOpen && thread.rightPanelTab === "subagents" ? " is-active" : ""}`}
+						title={thread.isRightPanelOpen && thread.rightPanelTab === "subagents" ? "收起子任务看板" : "展开子任务看板"}
+						onClick={() => toggleRightPanel(thread.key, "subagents")}
+					>
+						<Workflow size={13} />
+						<span>子任务</span>
+						{thread.subagents && thread.subagents.length > 0 && (
+							<span className="mh-subagent-badge">
+								{thread.subagents.filter(s => s.status === "started" || s.status === "running").length || thread.subagents.length}
+							</span>
+						)}
+					</button>
+				</div>
 				{thread.entries.length > 0 && (
 					<button
 						type="button"
@@ -359,7 +402,7 @@ function ThreadPane({
 				<Composer thread={thread} autoFocus />
 			</div>
 				</div>
-				{thread.isSubagentPanelOpen && <SubagentPanel thread={thread} />}
+				{thread.isRightPanelOpen && <RightPanel thread={thread} />}
 			</div>
 		</>
 	);

@@ -8,6 +8,7 @@ import type {
 	Notice,
 	QueuedPrompt,
 	QueuedPromptAttachment,
+	RightPanelTab,
 	SessionStateSnapshot,
 	SubagentProgress,
 	SubagentSnapshot,
@@ -177,6 +178,8 @@ function blankThread(cwd: string, sessionFile?: string, approvalMode: ApprovalMo
 		state: null,
 		subagents: [],
 		activeSubagentId: null,
+		isRightPanelOpen: false,
+		rightPanelTab: "files",
 		isSubagentPanelOpen: false,
 		uiRequests: [],
 		queuedPrompts: [],
@@ -321,6 +324,9 @@ function applyFrame(thread: Thread, frame: Frame): Partial<Thread> | null {
 		case "agent_end":
 			void refreshState(thread.key);
 			playSound("complete");
+			if (typeof window !== "undefined") {
+				window.dispatchEvent(new CustomEvent("omp:workspace-changed", { detail: { cwd: thread.cwd } }));
+			}
 			setTimeout(() => {
 				void dispatchNextQueuedPrompt(thread.key);
 			}, 120);
@@ -364,6 +370,9 @@ function applyFrame(thread: Thread, frame: Frame): Partial<Thread> | null {
 		case "tool_execution_end": {
 			const next = new Map(thread.activeTools);
 			next.delete(String(frame.toolCallId));
+			if (typeof window !== "undefined") {
+				window.dispatchEvent(new CustomEvent("omp:workspace-changed", { detail: { cwd: thread.cwd } }));
+			}
 			return { activeTools: next };
 		}
 		case "notice":
@@ -411,9 +420,12 @@ function applyFrame(thread: Thread, frame: Frame): Partial<Thread> | null {
 			const next = existingIdx !== -1
 				? thread.subagents.map((s, i) => (i === existingIdx ? sub : s))
 				: [...thread.subagents, sub];
+			const willOpenSubagent = thread.isSubagentPanelOpen || status === "started" || status === "running";
 			return {
 				subagents: next,
-				isSubagentPanelOpen: thread.isSubagentPanelOpen || status === "started" || status === "running",
+				isSubagentPanelOpen: willOpenSubagent,
+				isRightPanelOpen: thread.isRightPanelOpen || status === "started" || status === "running",
+				rightPanelTab: (status === "started" || status === "running") ? "subagents" : thread.rightPanelTab,
 			};
 		}
 		case "subagent_progress": {
@@ -546,12 +558,36 @@ export async function setApprovalMode(key: string, mode: ApprovalMode): Promise<
 	void attach(key);
 }
 
+export function toggleRightPanel(key: string, tab?: RightPanelTab): void {
+	update(key, t => {
+		if (!t.isRightPanelOpen) {
+			return { isRightPanelOpen: true, rightPanelTab: tab ?? t.rightPanelTab, isSubagentPanelOpen: (tab ?? t.rightPanelTab) === "subagents" };
+		}
+		if (tab && t.rightPanelTab !== tab) {
+			return { isRightPanelOpen: true, rightPanelTab: tab, isSubagentPanelOpen: tab === "subagents" };
+		}
+		return { isRightPanelOpen: false, isSubagentPanelOpen: false };
+	});
+}
+
+export function setRightPanelOpen(key: string, open: boolean, tab?: RightPanelTab): void {
+	update(key, t => ({
+		isRightPanelOpen: open,
+		rightPanelTab: tab ?? t.rightPanelTab,
+		isSubagentPanelOpen: open && (tab ?? t.rightPanelTab) === "subagents",
+	}));
+}
+
+export function setRightPanelTab(key: string, tab: RightPanelTab): void {
+	update(key, () => ({ rightPanelTab: tab, isRightPanelOpen: true, isSubagentPanelOpen: tab === "subagents" }));
+}
+
 export function toggleSubagentPanel(key: string): void {
-	update(key, t => ({ isSubagentPanelOpen: !t.isSubagentPanelOpen }));
+	toggleRightPanel(key, "subagents");
 }
 
 export function setSubagentPanelOpen(key: string, open: boolean): void {
-	update(key, () => ({ isSubagentPanelOpen: open }));
+	setRightPanelOpen(key, open, "subagents");
 }
 
 export function setActiveSubagent(key: string, id: string | null): void {

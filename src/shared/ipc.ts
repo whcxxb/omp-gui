@@ -27,6 +27,43 @@ export interface ProjectSummary {
 	sessions: SessionSummary[];
 	updatedAt: number;
 }
+export interface FileItem {
+	name: string;
+	path: string; // 相对 cwd 的路径，如 "src/main/index.ts"
+	isDirectory: boolean;
+	size?: number;
+	mtimeMs?: number;
+	extension?: string;
+}
+
+export type GitFileStatus = "modified" | "added" | "deleted" | "renamed" | "untracked" | "copied";
+
+export interface GitChangedFile {
+	path: string;
+	oldPath?: string;
+	stagedStatus: string;
+	worktreeStatus: string;
+	displayStatus: GitFileStatus;
+	staged: boolean;
+}
+
+export interface GitStatusResult {
+	isGitRepo: boolean;
+	branch?: string;
+	upstream?: string;
+	ahead: number;
+	behind: number;
+	stagedFiles: GitChangedFile[];
+	unstagedFiles: GitChangedFile[];
+	untrackedFiles: GitChangedFile[];
+	totalChanges: number;
+}
+
+export interface GitDiffOptions {
+	cwd: string;
+	file: string;
+	staged?: boolean;
+}
 
 export interface RuntimeInfo {
 	runtimeId: string;
@@ -66,6 +103,10 @@ export interface OmpApi {
 	setTheme(theme: Theme): Promise<void>;
 	revealPath(path: string): Promise<void>;
 	getPathForFile(file: File): string;
+	listDir(cwd: string, relativePath?: string): Promise<FileItem[]>;
+	gitStatus(cwd: string): Promise<GitStatusResult>;
+	gitDiff(options: GitDiffOptions): Promise<string>;
+	openInEditor(cwd: string, file: string): Promise<boolean>;
 	onRuntime(listener: (runtimeId: string, message: RuntimeMessage) => void): () => void;
 	onProjectsChanged(listener: () => void): () => void;
 }

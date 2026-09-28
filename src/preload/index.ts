@@ -24,6 +24,10 @@ const api: OmpApi = {
 		}
 	},
 	revealPath: path => ipcRenderer.invoke("omp:reveal", path),
+	listDir: (cwd, relativePath) => ipcRenderer.invoke("omp:list-dir", cwd, relativePath),
+	gitStatus: cwd => ipcRenderer.invoke("omp:git-status", cwd),
+	gitDiff: options => ipcRenderer.invoke("omp:git-diff", options),
+	openInEditor: (cwd, file) => ipcRenderer.invoke("omp:open-in-editor", cwd, file),
 	onRuntime(listener) {
 		const handler = (_e: unknown, runtimeId: string, message: RuntimeMessage) => listener(runtimeId, message);
 		ipcRenderer.on("omp:runtime", handler);

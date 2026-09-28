@@ -13,8 +13,8 @@ import {
 	UploadCloud,
 	X,
 } from "lucide-react";
-import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
-import type { ImageContent } from "@/collab/wire/index";
+import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import type { AssistantMessage, ImageContent, SessionEntry } from "@/collab/wire/index";
 import { playSound } from "@/lib/sound";
 import { abort, enqueuePrompt, removeQueuedPrompt, runCommand, sendPrompt, setApprovalMode, setModel, setThinkingLevel } from "@/state/threads";
 import type { ApprovalMode, ModelInfo, QueuedPrompt, Thread } from "@/state/types";
@@ -37,6 +37,107 @@ export type ComposerAttachment =
 			path: string;
 			relativePath: string;
 	  };
+
+interface PerfStats {
+	segments: string[];
+	tooltip: string;
+}
+
+function formatTokCount(n: number): string {
+	if (n >= 1_000_000) {
+		const val = (n / 1_000_000).toFixed(1).replace(/\.0$/, "");
+		return `${val}M tok`;
+	}
+	if (n >= 1000) {
+		const val = (n / 1000).toFixed(1).replace(/\.0$/, "");
+		return `${val}K tok`;
+	}
+	return `${n} tok`;
+}
+
+function formatDuration(ms: number): string {
+	if (ms < 1000) {
+		return `${Math.round(ms)}ms`;
+	}
+	return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function getLatestPerfStats(entries: SessionEntry[]): PerfStats | null {
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const entry = entries[i];
+		if (entry.type !== "message" || entry.message.role !== "assistant") continue;
+		const msg = entry.message as AssistantMessage;
+		const usage = msg.usage;
+		const duration = msg.duration;
+		const ttft = msg.ttft;
+
+		if (!usage && duration == null && ttft == null) continue;
+
+		const segments: string[] = [];
+
+		// 1. 首 token / 回复 / 速率
+		const timeParts: string[] = [];
+		if (ttft != null && ttft > 0) {
+			timeParts.push(`首 token ${formatDuration(ttft)}`);
+		}
+		if (duration != null && duration > 0) {
+			timeParts.push(`回复 ${formatDuration(duration)}`);
+		}
+		const out = usage?.output ?? 0;
+		if (duration != null && duration > 0 && out > 0) {
+			const speed = Math.round(out / (duration / 1000));
+			if (speed > 0) {
+				timeParts.push(`${speed} tok/s`);
+			}
+		}
+		if (timeParts.length > 0) {
+			segments.push(timeParts.join(" · "));
+		}
+
+		// 2. 缓存命中
+		const inp = usage?.input ?? 0;
+		const cacheRead = usage?.cacheRead ?? 0;
+		const totalInput = inp + cacheRead;
+		if (totalInput > 0) {
+			const cacheRate = Math.round((cacheRead / totalInput) * 100);
+			segments.push(`缓存命中 ${cacheRate}%`);
+		}
+
+		// 3. 输入输出 Token
+		if (totalInput > 0 || out > 0) {
+			const tokParts: string[] = [];
+			if (totalInput > 0) tokParts.push(`输入 ${formatTokCount(totalInput)}`);
+			if (out > 0) tokParts.push(`输出 ${formatTokCount(out)}`);
+			if (tokParts.length > 0) {
+				segments.push(tokParts.join(" · "));
+			}
+		}
+
+		if (segments.length === 0) continue;
+
+		const tooltipLines: string[] = [];
+		if (msg.model) tooltipLines.push(`模型: ${msg.model}`);
+		if (ttft != null && ttft > 0) tooltipLines.push(`首 Token 延迟 (TTFT): ${formatDuration(ttft)}`);
+		if (duration != null && duration > 0) tooltipLines.push(`回复总耗时: ${formatDuration(duration)}`);
+		if (duration != null && duration > 0 && out > 0) {
+			const speed = Math.round(out / (duration / 1000));
+			tooltipLines.push(`生成速率: ${speed} tok/s`);
+		}
+		if (totalInput > 0) {
+			const cacheRate = Math.round((cacheRead / totalInput) * 100);
+			tooltipLines.push(`输入 Token: ${totalInput.toLocaleString()} (未缓存: ${inp.toLocaleString()}, 命中缓存: ${cacheRead.toLocaleString()}, 命中率: ${cacheRate}%)`);
+		}
+		if (out > 0) {
+			tooltipLines.push(`输出 Token: ${out.toLocaleString()}${usage?.reasoningTokens ? ` (思考: ${usage.reasoningTokens.toLocaleString()})` : ""}`);
+		}
+
+		return {
+			segments,
+			tooltip: tooltipLines.join("\n"),
+		};
+	}
+	return null;
+}
 
 async function processDroppedFiles(files: FileList | File[], cwd: string): Promise<ComposerAttachment[]> {
 	const results: ComposerAttachment[] = [];
@@ -252,13 +353,25 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 		}
 		inputRef.current?.focus();
 	};
+
+	useEffect(() => {
+		const handleInsert = (e: Event): void => {
+			const detail = (e as CustomEvent<{ text: string }>).detail;
+			if (detail?.text) {
+				setText(prev => (prev ? `${prev} ${detail.text}` : detail.text));
+				inputRef.current?.focus();
+			}
+		};
+		window.addEventListener("omp:insert-prompt", handleInsert);
+		return () => window.removeEventListener("omp:insert-prompt", handleInsert);
+	}, []);
+
 	const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
 		if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
 			event.preventDefault();
 			submit();
 			return;
 		}
-
 		if (event.key === "ArrowUp") {
 			const atStart = inputRef.current
 				? inputRef.current.selectionStart === 0 && inputRef.current.selectionEnd === 0
@@ -367,7 +480,7 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 
 	const usage = thread.state?.contextUsage;
 	const queued = thread.state?.queuedMessageCount ?? 0;
-
+	const perfStats = useMemo(() => getLatestPerfStats(thread.entries), [thread.entries]);
 	return (
 		<>
 			<QueuedPromptTray
@@ -496,6 +609,16 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 				)}
 			</div>
 		</div>
+		{perfStats && (
+			<div className="cp-footer-perf" title={perfStats.tooltip}>
+				{perfStats.segments.map((seg, i) => (
+					<span key={i} className="cp-perf-seg">
+						{i > 0 && <span className="cp-perf-bar">|</span>}
+						<span>{seg}</span>
+					</span>
+				))}
+			</div>
+		)}
 		</>
 	);
 }
