@@ -1,4 +1,4 @@
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Sparkles } from "lucide-react";
 import { memo, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { ActiveTool } from "@/collab/lib/client";
 import { Markdown } from "@/collab/components/transcript/Markdown";
@@ -31,15 +31,35 @@ function ThinkingBlock({ text, redacted, live }: { text: string; redacted?: bool
 	);
 }
 
+function renderTextWithSkillBadge(text: string): ReactNode {
+	const trimmed = text.trim();
+	const match = trimmed.match(/^\/([a-zA-Z0-9_-]+)(?:\s+([\s\S]*))?$/);
+	if (match) {
+		const skillName = match[1];
+		const rest = match[2];
+		return (
+			<div className="th-user-text">
+				<div className="th-skill-line">
+					<span className="th-skill-badge" title={`引用技能: /${skillName}`}>
+						<Sparkles size={12} className="th-skill-badge-icon" />
+						<span className="th-skill-badge-name">/{skillName}</span>
+						<span className="th-skill-badge-tag">SKILL</span>
+					</span>
+				</div>
+				{rest && <div className="th-skill-rest">{rest}</div>}
+			</div>
+		);
+	}
+	return <div className="th-user-text">{text}</div>;
+}
+
 function UserContent({ content }: { content: string | readonly (TextContent | ImageContent)[] }): ReactNode {
-	if (typeof content === "string") return <div className="th-user-text">{content}</div>;
+	if (typeof content === "string") return renderTextWithSkillBadge(content);
 	return (
 		<>
 			{content.map((block, i) =>
 				block.type === "text" ? (
-					<div key={i} className="th-user-text">
-						{block.text}
-					</div>
+					<div key={i}>{renderTextWithSkillBadge(block.text)}</div>
 				) : block.type === "image" ? (
 					<img key={i} className="th-user-img" src={`data:${block.mimeType};base64,${block.data}`} alt="附件图片" />
 				) : null,

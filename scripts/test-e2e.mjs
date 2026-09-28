@@ -308,7 +308,42 @@ async function run() {
 		if (!cardSteered) throw new Error("直接发送干预后卡片未移除");
 		console.log("   直接发送干预当前任务成功，卡片正常出队");
 
-		console.log("12. 冒烟测试全部通过！");
+		console.log("12. 测试输入框斜杠命令引用 Skill 与胶囊高亮展示...");
+		await evalJs(`(() => {
+			const input = document.querySelector(".cp-input");
+			if (input) {
+				input.focus();
+				const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+				setter.call(input, "");
+				input.dispatchEvent(new Event("input", { bubbles: true }));
+			}
+		})()`);
+		await new Promise(r => setTimeout(r, 100));
+		await send("Input.insertText", { text: "/upd" });
+		await new Promise(r => setTimeout(r, 400));
+		const menuShown = await evalJs('!!document.querySelector(".cp-slash-menu")');
+		if (!menuShown) throw new Error("输入 /upd 后未弹出斜杠命令菜单 .cp-slash-menu");
+		const itemText = await evalJs('document.querySelector(".cp-slash-item")?.textContent');
+		console.log("   斜杠补全弹层成功唤起，匹配到项:", itemText);
+
+		// 点击第一项补全
+		await evalJs('document.querySelector(".cp-slash-item")?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))');
+		await new Promise(r => setTimeout(r, 200));
+		const hasSkillPill = await evalJs('!!document.querySelector(".cp-skill-pill")');
+		if (!hasSkillPill) throw new Error("补全技能后未展示技能引用胶囊 .cp-skill-pill");
+		const pillName = await evalJs('document.querySelector(".cp-skill-pill-name")?.textContent');
+		console.log("   技能引用胶囊渲染成功，展示技能:", pillName);
+		// 清除输入框内容
+		await evalJs(`(() => {
+			const input = document.querySelector(".cp-input");
+			if (input) {
+				input.value = "";
+				input.dispatchEvent(new Event("input", { bubbles: true }));
+			}
+		})()`);
+		await new Promise(r => setTimeout(r, 100));
+
+		console.log("13. 冒烟测试全部通过！");
 		ws.close();
 	} finally {
 		try {

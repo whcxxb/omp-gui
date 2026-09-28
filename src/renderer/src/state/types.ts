@@ -1,5 +1,5 @@
 import type { ActiveTool } from "@/collab/lib/client";
-import type { ApprovalMode } from "@shared/ipc";
+import type { ApprovalMode, SkillItem } from "@shared/ipc";
 
 export type { ApprovalMode };
 import type { AssistantMessage, ImageContent, SessionEntry } from "@/collab/wire/index";
@@ -32,6 +32,14 @@ export type TimedAssistantMessage = AssistantMessage & {
 	ttft?: number;
 	usage: AssistantMessage["usage"] & { reasoningTokens?: number };
 };
+
+export interface SlashCommand {
+	name: string;
+	aliases?: string[];
+	description?: string;
+	input?: { hint?: string };
+	subcommands?: Array<{ name: string; description?: string; usage?: string }>;
+}
 
 export interface ModelInfo {
 	provider: string;
@@ -128,4 +136,6 @@ export interface Thread {
 	uiRequests: UiRequest[];
 	queuedPrompts: QueuedPrompt[];
 	notices: Notice[];
+	availableCommands: SlashCommand[];
+	availableSkills: SkillItem[];
 }

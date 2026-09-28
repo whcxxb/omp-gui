@@ -38,43 +38,83 @@ export function listLocalSkills(cwd?: string): SkillItem[] {
 	const candidates: Array<{ dir: string; scope: "project" | "global" }> = [];
 
 	if (cwd && existsSync(cwd)) {
+		// 优先扫描项目根目录下的技能目录（包含常见的 skills, skill, .omp/skills, .claude/skills 等）
+		candidates.push({ dir: join(cwd, "skills"), scope: "project" });
+		candidates.push({ dir: join(cwd, "skill"), scope: "project" });
 		candidates.push({ dir: join(cwd, ".omp", "skills"), scope: "project" });
 		candidates.push({ dir: join(cwd, ".claude", "skills"), scope: "project" });
+		candidates.push({ dir: join(cwd, ".skills"), scope: "project" });
+		candidates.push({ dir: join(cwd, ".agents", "skills"), scope: "project" });
+		candidates.push({ dir: join(cwd, ".agent", "skills"), scope: "project" });
 	}
 
 	const home = homedir();
 	candidates.push({ dir: join(home, ".omp", "skills"), scope: "global" });
 	candidates.push({ dir: join(home, ".claude", "skills"), scope: "global" });
+	candidates.push({ dir: join(home, ".skills"), scope: "global" });
+	candidates.push({ dir: join(home, "skills"), scope: "global" });
 
 	const items: SkillItem[] = [];
 	const seenPaths = new Set<string>();
+	const seenNames = new Set<string>();
 
 	for (const { dir, scope } of candidates) {
 		if (!existsSync(dir)) continue;
 		try {
 			const entries = readdirSync(dir);
 			for (const entry of entries) {
-				const skillDir = join(dir, entry);
+				if (entry.startsWith(".")) continue;
+				const fullPath = join(dir, entry);
 				try {
-					if (!statSync(skillDir).isDirectory()) continue;
+					const stat = statSync(fullPath);
+					if (stat.isDirectory()) {
+						// 目录型技能：查找 SKILL.md, skill.md 或与目录同名的 .md
+						const possibleMds = [
+							join(fullPath, "SKILL.md"),
+							join(fullPath, "skill.md"),
+							join(fullPath, `${entry}.md`),
+						];
+						const targetMd = possibleMds.find(p => existsSync(p));
+						if (targetMd) {
+							const normalizedPath = resolve(targetMd);
+							if (seenPaths.has(normalizedPath)) continue;
+							seenPaths.add(normalizedPath);
+
+							const meta = parseSkillMarkdown(normalizedPath);
+							const name = (meta.name || entry).toLowerCase();
+							if (seenNames.has(name)) continue;
+							seenNames.add(name);
+
+							items.push({
+								name,
+								description: meta.description,
+								scope,
+								path: normalizedPath,
+								dir: fullPath,
+							});
+						}
+					} else if (stat.isFile() && entry.endsWith(".md") && !entry.toLowerCase().startsWith("readme")) {
+						// 单文件型技能：例如 skills/weixin_search.md
+						const normalizedPath = resolve(fullPath);
+						if (seenPaths.has(normalizedPath)) continue;
+						seenPaths.add(normalizedPath);
+
+						const defaultName = entry.replace(/\.md$/i, "");
+						const meta = parseSkillMarkdown(normalizedPath);
+						const name = (meta.name || defaultName).toLowerCase();
+						if (seenNames.has(name)) continue;
+						seenNames.add(name);
+
+						items.push({
+							name,
+							description: meta.description,
+							scope,
+							path: normalizedPath,
+							dir,
+						});
+					}
 				} catch {
 					continue;
-				}
-
-				const skillMd = join(skillDir, "SKILL.md");
-				if (existsSync(skillMd)) {
-					const normalizedPath = resolve(skillMd);
-					if (seenPaths.has(normalizedPath)) continue;
-					seenPaths.add(normalizedPath);
-
-					const meta = parseSkillMarkdown(skillMd);
-					items.push({
-						name: meta.name || entry,
-						description: meta.description,
-						scope,
-						path: normalizedPath,
-						dir: skillDir,
-					});
 				}
 			}
 		} catch {

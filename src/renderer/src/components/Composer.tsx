@@ -9,7 +9,9 @@ import {
 	Shield,
 	ShieldAlert,
 	ShieldCheck,
+	Sparkles,
 	Square,
+	Terminal,
 	UploadCloud,
 	X,
 } from "lucide-react";
@@ -41,6 +43,15 @@ export type ComposerAttachment =
 interface PerfStats {
 	segments: string[];
 	tooltip: string;
+}
+
+interface SlashCandidate {
+	id: string;
+	kind: "skill" | "command";
+	name: string;
+	desc: string;
+	scope?: "project" | "global";
+	hint?: string;
 }
 
 function formatTokCount(n: number): string {
@@ -256,6 +267,64 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
 	const historyIndexRef = useRef<number | null>(null);
 	const draftRef = useRef<string>("");
+	const [slashDismissed, setSlashDismissed] = useState(false);
+	const [slashSelectedIdx, setSlashSelectedIdx] = useState(0);
+
+	const slashMatch = useMemo(() => {
+		if (!text.startsWith("/")) return null;
+		const spaceIdx = text.indexOf(" ");
+		if (spaceIdx !== -1) return null;
+		const query = text.slice(1).toLowerCase();
+
+		const candidates: SlashCandidate[] = [];
+
+		// 1. 本地发现的 Skills（优先项目级，然后全局级）
+		const skills = thread.availableSkills ?? [];
+		for (const s of skills) {
+			if (!query || s.name.toLowerCase().includes(query) || (s.description && s.description.toLowerCase().includes(query))) {
+				candidates.push({
+					id: `skill-${s.path}`,
+					kind: "skill",
+					name: s.name,
+					desc: s.description || (s.scope === "project" ? "当前项目专属技能" : "全局通用技能"),
+					scope: s.scope,
+				});
+			}
+		}
+
+		// 2. 系统内置命令
+		const commands = thread.availableCommands ?? [];
+		for (const c of commands) {
+			if (c.name.startsWith("skill:")) continue;
+			if (!query || c.name.toLowerCase().includes(query) || (c.description && c.description.toLowerCase().includes(query))) {
+				candidates.push({
+					id: `cmd-${c.name}`,
+					kind: "command",
+					name: c.name,
+					desc: c.description || "",
+					hint: c.input?.hint,
+				});
+			}
+		}
+
+		return candidates;
+	}, [text, thread.availableSkills, thread.availableCommands]);
+
+	const activeSkillPill = useMemo(() => {
+		const trimmed = text.trim();
+		if (!trimmed.startsWith("/")) return null;
+		const match = trimmed.match(/^\/([a-zA-Z0-9_-]+)/);
+		if (!match) return null;
+		const skillName = match[1].toLowerCase();
+		return (thread.availableSkills ?? []).find(s => s.name.toLowerCase() === skillName) ?? null;
+	}, [text, thread.availableSkills]);
+
+	const applySlashCandidate = (candidate: SlashCandidate): void => {
+		setText(`/${candidate.name} `);
+		setSlashDismissed(true);
+		playSound("toggle");
+		inputRef.current?.focus();
+	};
 	const connected = thread.status === "ready";
 	useEffect(() => {
 		if (autoFocus) inputRef.current?.focus();
@@ -367,6 +436,29 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 	}, []);
 
 	const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+		if (slashMatch && slashMatch.length > 0 && !slashDismissed) {
+			if (event.key === "ArrowDown") {
+				event.preventDefault();
+				setSlashSelectedIdx(i => (i + 1) % slashMatch.length);
+				return;
+			}
+			if (event.key === "ArrowUp") {
+				event.preventDefault();
+				setSlashSelectedIdx(i => (i - 1 + slashMatch.length) % slashMatch.length);
+				return;
+			}
+			if (event.key === "Enter" || event.key === "Tab") {
+				event.preventDefault();
+				const target = slashMatch[slashSelectedIdx] ?? slashMatch[0];
+				if (target) applySlashCandidate(target);
+				return;
+			}
+			if (event.key === "Escape") {
+				event.preventDefault();
+				setSlashDismissed(true);
+				return;
+			}
+		}
 		if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
 			event.preventDefault();
 			submit();
@@ -502,6 +594,73 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 				</div>
 			)}
 
+			{/* 引用技能的样式胶囊 Badge */}
+			{activeSkillPill && (
+				<div className="cp-skill-pill">
+					<div className="cp-skill-pill-left">
+						<Sparkles size={13} className="cp-skill-pill-icon" />
+						<span className="cp-skill-pill-name">/{activeSkillPill.name}</span>
+						<span className={`sk-badge is-${activeSkillPill.scope}`}>
+							{activeSkillPill.scope === "project" ? "项目专属技能" : "全局技能"}
+						</span>
+						{activeSkillPill.description && (
+							<span className="cp-skill-pill-desc">{activeSkillPill.description}</span>
+						)}
+					</div>
+					<button
+						type="button"
+						className="cp-skill-pill-close"
+						title="清除技能引用"
+						onClick={() => {
+							const rest = text.replace(/^\/[a-zA-Z0-9_-]+\s*/, "");
+							setText(rest);
+							inputRef.current?.focus();
+						}}
+					>
+						<X size={12} />
+					</button>
+				</div>
+			)}
+
+			{/* 斜杠命令与技能补全弹层 */}
+			{slashMatch && slashMatch.length > 0 && !slashDismissed && (
+				<div className="cp-slash-menu">
+					<div className="cp-slash-head">
+						<span>可用技能与命令（{slashMatch.length}）</span>
+						<span>↑↓ 导航 · Enter / Tab 确认 · Esc 关闭</span>
+					</div>
+					<div className="cp-slash-list">
+						{slashMatch.map((item, idx) => (
+							<button
+								key={item.id}
+								type="button"
+								className={`cp-slash-item${idx === slashSelectedIdx ? " is-active" : ""}`}
+								onMouseDown={e => {
+									e.preventDefault();
+									applySlashCandidate(item);
+								}}
+								onMouseEnter={() => setSlashSelectedIdx(idx)}
+							>
+								<div className="cp-slash-item-left">
+									{item.kind === "skill" ? (
+										<Sparkles size={13} className="cp-slash-icon is-skill" />
+									) : (
+										<Terminal size={13} className="cp-slash-icon is-cmd" />
+									)}
+									<span className="cp-slash-item-name">/{item.name}</span>
+									{item.kind === "skill" && item.scope && (
+										<span className={`sk-badge is-${item.scope}`}>
+											{item.scope === "project" ? "Project" : "Global"}
+										</span>
+									)}
+								</div>
+								<span className="cp-slash-item-desc">{item.desc || item.hint}</span>
+							</button>
+						))}
+					</div>
+				</div>
+			)}
+
 
 
 			{attachments.length > 0 && (
@@ -545,6 +704,8 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 				onChange={e => {
 					historyIndexRef.current = null;
 					setText(e.target.value);
+					setSlashDismissed(false);
+					setSlashSelectedIdx(0);
 				}}
 				onKeyDown={onKeyDown}
 				onPaste={onPaste}
