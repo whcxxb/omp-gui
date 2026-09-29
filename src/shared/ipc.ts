@@ -109,6 +109,8 @@ export interface OmpApi {
 	pickProject(): Promise<string | null>;
 	removeProject(path: string): Promise<void>;
 	deleteSession(file: string): Promise<boolean>;
+	renameSession(file: string, title: string): Promise<boolean>;
+	readSessionExcerpt(file: string, maxTurns?: number): Promise<string>;
 	openSession(options: OpenSessionOptions): Promise<RuntimeInfo>;
 	closeRuntime(runtimeId: string): Promise<void>;
 	request<T = unknown>(runtimeId: string, command: Record<string, unknown>): Promise<T>;

@@ -1,8 +1,8 @@
-import { Download, FolderOpen, FolderPlus, FolderTree, GitBranch, PanelLeft, RotateCw, Shield, ShieldAlert, ShieldCheck, Workflow, X } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { Download, FolderOpen, FolderPlus, FolderTree, GitBranch, PanelLeft, Pencil, RotateCw, Shield, ShieldAlert, ShieldCheck, Workflow, X } from "lucide-react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import type { ProjectSummary, SessionSummary } from "@shared/ipc";
 import { APPROVAL_CONFIG, Composer } from "./components/Composer";
-import { Sidebar } from "./components/Sidebar";
+import { Sidebar, type SidebarThreadItem } from "./components/Sidebar";
 import { ThreadView } from "./components/ThreadView";
 import { RightPanel } from "./components/RightPanel";
 import { CommandPalette } from "./components/CommandPalette";
@@ -19,6 +19,7 @@ import {
 	handleRuntimeMessage,
 	openThread,
 	reconnect,
+	renameThread,
 	toggleRightPanel,
 	toggleSubagentPanel,
 	useThreads,
@@ -121,6 +122,23 @@ export function App(): ReactNode {
 		refreshProjects();
 	};
 
+	const handleRenameSession = async (item: SidebarThreadItem, newTitle: string): Promise<void> => {
+		const trimmed = newTitle.trim();
+		if (!trimmed || trimmed === item.title) return;
+
+		if (item.thread) {
+			await renameThread(item.thread.key, trimmed);
+		}
+		if (item.session?.file) {
+			await window.omp.renameSession(item.session.file, trimmed);
+			const matchingThread = threads.find(t => t.sessionFile === item.session?.file);
+			if (matchingThread && (!item.thread || matchingThread.key !== item.thread.key)) {
+				await renameThread(matchingThread.key, trimmed);
+			}
+		}
+		refreshProjects();
+	};
+
 	const handleCloseThread = async (key: string): Promise<void> => {
 		await closeThread(key);
 		if (activeKey === key) {
@@ -216,6 +234,7 @@ export function App(): ReactNode {
 				onRemoveProject={path => void removeProject(path)}
 				onDeleteSession={file => void deleteSession(file)}
 				onCloseThread={key => void handleCloseThread(key)}
+				onRenameSession={handleRenameSession}
 				onToggleSidebar={() => setSidebarOpen(v => !v)}
 				sidebarWidth={sidebarWidth}
 				onWidthChange={updateSidebarWidth}
@@ -287,6 +306,31 @@ function ThreadPane({
 	const title = thread.state?.sessionName || firstPrompt(thread) || (thread.entries.length === 0 ? "新对话" : "未���名对话");
 	const empty = thread.entries.length === 0 && !thread.stream && !thread.working;
 	const projectName = thread.cwd.split("/").filter(Boolean).at(-1) ?? thread.cwd;
+	const [isEditingTitle, setIsEditingTitle] = useState(false);
+	const [editTitleValue, setEditTitleValue] = useState("");
+	const titleInputRef = useRef<HTMLInputElement | null>(null);
+
+	useEffect(() => {
+		if (isEditingTitle && titleInputRef.current) {
+			titleInputRef.current.focus();
+			titleInputRef.current.select();
+		}
+	}, [isEditingTitle]);
+
+	const startRename = (): void => {
+		setIsEditingTitle(true);
+		setEditTitleValue(title);
+	};
+
+	const commitRename = async (): Promise<void> => {
+		const trimmed = editTitleValue.trim();
+		setIsEditingTitle(false);
+		setEditTitleValue("");
+		if (trimmed && trimmed !== title) {
+			await renameThread(thread.key, trimmed);
+		}
+	};
+
 
 	return (
 		<>
@@ -299,7 +343,44 @@ function ThreadPane({
 						</button>
 					</>
 				)}
-				<div className="mh-title">{title}</div>
+				<div className="mh-title-wrap">
+					{isEditingTitle ? (
+						<input
+							ref={titleInputRef}
+							className="mh-title-input"
+							value={editTitleValue}
+							onChange={e => setEditTitleValue(e.target.value)}
+							onKeyDown={e => {
+								if (e.key === "Enter") {
+									e.preventDefault();
+									void commitRename();
+								} else if (e.key === "Escape") {
+									e.preventDefault();
+									setIsEditingTitle(false);
+								}
+							}}
+							onBlur={() => void commitRename()}
+						/>
+					) : (
+						<>
+							<div
+								className="mh-title"
+								title="双击或点击铅笔图标重命名当前对话"
+								onDoubleClick={startRename}
+							>
+								{title}
+							</div>
+							<button
+								type="button"
+								className="mh-title-edit"
+								title="重命名当前对话"
+								onClick={startRename}
+							>
+								<Pencil size={11} />
+							</button>
+						</>
+					)}
+				</div>
 				{(() => {
 					const mode = thread.approvalMode ?? "yolo";
 					const cfg = APPROVAL_CONFIG[mode] ?? APPROVAL_CONFIG.yolo;

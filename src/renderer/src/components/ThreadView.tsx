@@ -1,4 +1,4 @@
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, GripVertical } from "lucide-react";
 import { memo, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { ActiveTool } from "@/collab/lib/client";
 import { Markdown } from "@/collab/components/transcript/Markdown";
@@ -48,6 +48,21 @@ function UserContent({ content }: { content: string | readonly (TextContent | Im
 	);
 }
 
+function extractUserText(content: string | readonly (TextContent | ImageContent)[]): string {
+	if (typeof content === "string") return content;
+	return content
+		.filter((b): b is TextContent => b.type === "text")
+		.map(b => b.text)
+		.join("\n");
+}
+
+function extractAssistantText(message: AssistantMessage): string {
+	return message.content
+		.filter((b): b is Extract<typeof b, { type: "text" }> => b.type === "text")
+		.map(b => b.text)
+		.join("\n\n");
+}
+
 function formatMessageTime(raw?: number | string): string | null {
 	if (!raw) return null;
 	const date = typeof raw === "number" ? new Date(raw) : new Date(Date.parse(raw));
@@ -88,8 +103,29 @@ interface AssistantProps {
 
 function AssistantBody({ message, results, active, pending }: AssistantProps): ReactNode {
 	const last = message.content.length - 1;
+	const assistantText = extractAssistantText(message);
 	return (
 		<div className="th-assistant">
+			{assistantText && !pending && (
+				<div
+					className="th-assistant-drag"
+					draggable={true}
+					title="拖拽此回复记录到输入框以引入"
+					onDragStart={e => {
+						const payload = {
+							type: "message-record",
+							role: "assistant",
+							content: assistantText,
+							summary: assistantText.slice(0, 40),
+						};
+						e.dataTransfer.setData("application/x-omp-message", JSON.stringify(payload));
+						e.dataTransfer.setData("text/plain", `> 助手回复: ${assistantText}`);
+						e.dataTransfer.effectAllowed = "copyLink";
+					}}
+				>
+					<GripVertical size={13} />
+				</div>
+			)}
 			{message.content.map((block, i) => {
 				switch (block.type) {
 					case "thinking":
@@ -152,9 +188,26 @@ const EntryRow = memo(function EntryRow({
 				const timeRaw = msg.timestamp || entry.timestamp;
 				const timeStr = formatMessageTime(timeRaw);
 				const fullTime = getFullTimeString(timeRaw);
+				const userText = extractUserText(msg.content);
 				return (
 					<div className="th-user">
-						<div className="th-user-bubble">
+						<div
+							className="th-user-bubble"
+							draggable={Boolean(userText)}
+							title={userText ? "可拖拽此条提问记录到输入框以引入" : undefined}
+							onDragStart={e => {
+								if (!userText) return;
+								const payload = {
+									type: "message-record",
+									role: "user",
+									content: userText,
+									summary: userText.slice(0, 40),
+								};
+								e.dataTransfer.setData("application/x-omp-message", JSON.stringify(payload));
+								e.dataTransfer.setData("text/plain", `> 用户提问: ${userText}`);
+								e.dataTransfer.effectAllowed = "copyLink";
+							}}
+						>
 							<UserContent content={msg.content} />
 							{timeStr && (
 								<div className="th-user-meta" title={fullTime}>

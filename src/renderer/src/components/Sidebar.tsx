@@ -1,12 +1,12 @@
-import { ChevronRight, Folder, FolderPlus, PanelLeft, Settings, SquarePen, Trash2, X } from "lucide-react";
-import { type ReactNode, useMemo, useState } from "react";
+import { ChevronRight, Folder, FolderPlus, PanelLeft, Pencil, Settings, SquarePen, Trash2, X } from "lucide-react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectSummary, SessionSummary } from "@shared/ipc";
 import { relativeTime, shortPath } from "@/lib/time";
 import type { Thread } from "@/state/types";
 
 const COLLAPSED_LIMIT = 6;
 
-interface SidebarThreadItem {
+export interface SidebarThreadItem {
 	key: string;
 	title: string;
 	updatedAt: number;
@@ -44,6 +44,7 @@ interface SidebarProps {
 	onAddProject(): void;
 	onRemoveProject(path: string): void;
 	onDeleteSession(file: string): void;
+	onRenameSession?(item: SidebarThreadItem, newTitle: string): Promise<void> | void;
 	onCloseThread?(key: string): void;
 	onToggleSidebar(): void;
 	sidebarWidth: number;
@@ -81,6 +82,39 @@ export function Sidebar(props: SidebarProps): ReactNode {
 		window.addEventListener("mousemove", onMouseMove);
 		window.addEventListener("mouseup", onMouseUp);
 	};
+	const [editingKey, setEditingKey] = useState<string | null>(null);
+	const [renameValue, setRenameValue] = useState("");
+	const renameInputRef = useRef<HTMLInputElement | null>(null);
+
+	useEffect(() => {
+		if (editingKey && renameInputRef.current) {
+			renameInputRef.current.focus();
+			renameInputRef.current.select();
+		}
+	}, [editingKey]);
+
+	const startRenaming = (item: SidebarThreadItem, e?: React.MouseEvent): void => {
+		e?.stopPropagation();
+		e?.preventDefault();
+		setEditingKey(item.key);
+		setRenameValue(item.title);
+	};
+
+	const cancelRenaming = (): void => {
+		setEditingKey(null);
+		setRenameValue("");
+	};
+
+	const commitRenaming = async (item: SidebarThreadItem): Promise<void> => {
+		const trimmed = renameValue.trim();
+		const currentEditing = editingKey;
+		setEditingKey(null);
+		setRenameValue("");
+		if (currentEditing && trimmed && trimmed !== item.title && props.onRenameSession) {
+			await props.onRenameSession(item, trimmed);
+		}
+	};
+
 	const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 	const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -245,35 +279,86 @@ export function Sidebar(props: SidebarProps): ReactNode {
 							{!isCollapsed && (
 								<ul className="sb-threads">
 									{items.map(item => (
-										<li key={item.key}>
+										<li key={item.key} className="sb-thread-li">
 											<button
 												type="button"
 												className={`sb-thread${item.isActive ? " is-active" : ""}`}
-												title={`${item.title} · ${relativeTime(item.updatedAt)}`}
+												title={`${item.title} · ${relativeTime(item.updatedAt)} (可拖拽到输入框引入)`}
+												draggable={editingKey !== item.key}
+												onDragStart={e => {
+													if (editingKey === item.key) {
+														e.preventDefault();
+														return;
+													}
+													const payload = {
+														type: "session",
+														title: item.title,
+														file: item.session?.file,
+														threadKey: item.thread?.key ?? (item.session ? undefined : item.key),
+														cwd: project.path,
+													};
+													e.dataTransfer.setData("application/x-omp-session", JSON.stringify(payload));
+													e.dataTransfer.setData("text/plain", `[对话记录: ${item.title}]`);
+													e.dataTransfer.effectAllowed = "copyLink";
+												}}
 												onClick={() => {
+													if (editingKey === item.key) return;
 													if (item.session) props.onOpenSession(item.session);
 													else if (item.thread) props.onSelectThread(item.thread.key);
 												}}
+												onDoubleClick={e => startRenaming(item, e)}
 											>
 												<ThreadDot thread={item.thread} />
-												<span className="sb-thread-title">{item.title}</span>
-												{(item.session || item.thread) && (
-													<button
-														type="button"
-														className="sb-thread-delete"
-														title={item.session ? "删除此会话" : "关闭此新对话"}
-														onClick={e => {
-															e.stopPropagation();
-															if (item.session) {
-																props.onDeleteSession(item.session.file);
-															} else if (item.thread && props.onCloseThread) {
-																props.onCloseThread(item.thread.key);
+												{editingKey === item.key ? (
+													<input
+														ref={renameInputRef}
+														className="sb-thread-rename-input"
+														value={renameValue}
+														onClick={e => e.stopPropagation()}
+														onChange={e => setRenameValue(e.target.value)}
+														onKeyDown={e => {
+															if (e.key === "Enter") {
+																e.preventDefault();
+																void commitRenaming(item);
+															} else if (e.key === "Escape") {
+																e.preventDefault();
+																cancelRenaming();
 															}
 														}}
-													>
-														<Trash2 size={12} />
-													</button>
+														onBlur={() => void commitRenaming(item)}
+													/>
+												) : (
+													<span className="sb-thread-title">{item.title}</span>
 												)}
+												<div className="sb-thread-actions" onClick={e => e.stopPropagation()}>
+													{editingKey !== item.key && (
+														<button
+															type="button"
+															className="sb-thread-rename"
+															title="重命名此对话"
+															onClick={e => startRenaming(item, e)}
+														>
+															<Pencil size={11} />
+														</button>
+													)}
+													{(item.session || item.thread) && editingKey !== item.key && (
+														<button
+															type="button"
+															className="sb-thread-delete"
+															title={item.session ? "删除此会话" : "关闭此新对话"}
+															onClick={e => {
+																e.stopPropagation();
+																if (item.session) {
+																	props.onDeleteSession(item.session.file);
+																} else if (item.thread && props.onCloseThread) {
+																	props.onCloseThread(item.thread.key);
+																}
+															}}
+														>
+															<Trash2 size={12} />
+														</button>
+													)}
+												</div>
 											</button>
 										</li>
 									))}

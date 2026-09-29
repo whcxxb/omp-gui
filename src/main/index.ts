@@ -7,7 +7,7 @@ import type { ApprovalMode, GitDiffOptions, OpenSessionOptions, Theme } from "@s
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from "electron";
 import { gitDiff, gitStatus, listDir, openInEditor } from "./git-fs";
 import { detectDefaultApprovalMode, loginEnv, ompVersion, resolveOmp, RuntimePool } from "./runtimes";
-import { deleteSessionFile, groupProjects, scanSessions, sessionsDir } from "./sessions";
+import { deleteSessionFile, groupProjects, readSessionExcerpt, renameSessionFile, scanSessions, sessionsDir } from "./sessions";
 import { readStore, writeStore } from "./store";
 
 let win: BrowserWindow | null = null;
@@ -115,6 +115,14 @@ function registerIpc(): void {
 		const success = await deleteSessionFile(file);
 		win?.webContents.send("omp:projects-changed");
 		return success;
+	});
+	ipcMain.handle("omp:rename-session", async (_e, file: string, title: string) => {
+		const success = await renameSessionFile(file, title);
+		win?.webContents.send("omp:projects-changed");
+		return success;
+	});
+	ipcMain.handle("omp:read-session-excerpt", async (_e, file: string, maxTurns?: number) => {
+		return readSessionExcerpt(file, maxTurns);
 	});
 	ipcMain.handle("omp:open-session", (_e, options: OpenSessionOptions) => {
 		const store = readStore();

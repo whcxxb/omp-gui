@@ -264,6 +264,20 @@ export async function sendPrompt(key: string, message: string, images?: ImageCon
 					// 忽略静默标题生成失败
 				}
 			})();
+		} else if (thread.state?.sessionName) {
+			void (async () => {
+				try {
+					const current = getThread(key);
+					if (current?.runtimeId && current.state?.sessionName) {
+						await window.omp.request(current.runtimeId, {
+							type: "set_session_name",
+							name: current.state.sessionName,
+						});
+					}
+				} catch {
+					// ignore
+				}
+			})();
 		}
 	} catch (error) {
 		update(key, t => pushNotice(t, "error", error instanceof Error ? error.message : String(error)));
@@ -328,6 +342,42 @@ export async function dispatchNextQueuedPrompt(key: string): Promise<void> {
 	const next = thread.queuedPrompts[0]!;
 	update(key, t => ({ queuedPrompts: t.queuedPrompts.slice(1) }));
 	void sendPrompt(key, next.message, next.images);
+}
+
+export async function renameThread(key: string, newTitle: string): Promise<void> {
+	const trimmed = newTitle.trim();
+	if (!trimmed) return;
+
+	const thread = getThread(key);
+	if (!thread) return;
+
+	update(key, t => ({
+		...t,
+		state: t.state
+			? { ...t.state, sessionName: trimmed }
+			: { sessionId: "", sessionName: trimmed, queuedMessageCount: 0, isStreaming: false },
+	}));
+
+	if (thread.runtimeId && thread.status === "ready") {
+		try {
+			await window.omp.request(thread.runtimeId, {
+				type: "set_session_name",
+				name: trimmed,
+			});
+			void refreshState(key);
+		} catch {
+			// ignore runtime request error
+		}
+	}
+
+	const sessionFile = thread.sessionFile ?? thread.state?.sessionFile;
+	if (sessionFile) {
+		try {
+			await window.omp.renameSession(sessionFile, trimmed);
+		} catch (err) {
+			console.error("Failed to rename session file on disk:", err);
+		}
+	}
 }
 
 export async function abort(key: string): Promise<void> {

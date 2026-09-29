@@ -307,8 +307,80 @@ async function run() {
 		const cardSteered = await evalJs('!document.querySelector(".qp-card")');
 		if (!cardSteered) throw new Error("直接发送干预后卡片未移除");
 		console.log("   直接发送干预当前任务成功，卡片正常出队");
+		console.log("12. 测试对话重命名功能 (侧边栏与标题栏)...");
+		const renameSidebarResult = await evalJs(`(async () => {
+			const renameBtn = document.querySelector(".sb-thread-rename");
+			if (!renameBtn) return { error: "未找到侧边栏重命名按钮 .sb-thread-rename" };
+			renameBtn.click();
+			await new Promise(r => setTimeout(r, 200));
+			const input = document.querySelector(".sb-thread-rename-input");
+			if (!input) return { error: "未进入侧边栏重命名输入状态 .sb-thread-rename-input" };
+			input.value = "E2E测试重命名会话";
+			input.dispatchEvent(new Event("input", { bubbles: true }));
+			input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+			await new Promise(r => setTimeout(r, 400));
+			const newTitle = document.querySelector(".sb-thread-title")?.textContent;
+			return { success: true, newTitle };
+		})()`);
+		if (renameSidebarResult.error) throw new Error(renameSidebarResult.error);
+		console.log("   侧边栏重命名成功, 当前标题:", renameSidebarResult.newTitle);
 
-		console.log("12. 冒烟测试全部通过！");
+		console.log("13. 测试拖拽对话记录到对话框 (引入会话)...");
+		const dropSessionResult = await evalJs(`(async () => {
+			const cp = document.querySelector(".cp");
+			if (!cp) return { error: "未找到输入框 .cp" };
+			const sessionPayload = {
+				type: "session",
+				title: "E2E测试重命名会话",
+				file: "/fake/path/session.jsonl",
+				threadKey: "dummy-key",
+				cwd: "/fake/cwd"
+			};
+			const dt = new DataTransfer();
+			dt.setData("application/x-omp-session", JSON.stringify(sessionPayload));
+			cp.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
+			await new Promise(r => setTimeout(r, 400));
+			const sessionAtt = document.querySelector(".cp-att-item.is-session");
+			return {
+				found: !!sessionAtt,
+				title: sessionAtt?.textContent?.trim()
+			};
+		})()`);
+		if (!dropSessionResult.found) throw new Error("拖拽会话记录到对话框失败，未生成 .cp-att-item.is-session");
+		console.log("   会话记录拖拽引入成功, 附件显示:", dropSessionResult.title);
+
+		// 清理拖入的会话附件
+		await evalJs('document.querySelector(".cp-att-remove")?.click()');
+		await new Promise(r => setTimeout(r, 200));
+
+		console.log("14. 测试拖拽单条消息记录到对话框 (引用消息)...");
+		const dropMessageResult = await evalJs(`(async () => {
+			const cp = document.querySelector(".cp");
+			if (!cp) return { error: "未找到输入框 .cp" };
+			const msgPayload = {
+				type: "message-record",
+				role: "user",
+				content: "这是用户在测试会话中提出的需求内容",
+				summary: "这是用户在测试会话中提出的需求内容"
+			};
+			const dt = new DataTransfer();
+			dt.setData("application/x-omp-message", JSON.stringify(msgPayload));
+			cp.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: dt }));
+			await new Promise(r => setTimeout(r, 400));
+			const msgAtt = document.querySelector(".cp-att-item.is-message");
+			return {
+				found: !!msgAtt,
+				title: msgAtt?.textContent?.trim()
+			};
+		})()`);
+		if (!dropMessageResult.found) throw new Error("拖拽消息记录到对话框失败，未生成 .cp-att-item.is-message");
+		console.log("   单条消息记录拖拽引入成功, 附件显示:", dropMessageResult.title);
+
+		// 清理附件
+		await evalJs('document.querySelector(".cp-att-remove")?.click()');
+		await new Promise(r => setTimeout(r, 200));
+
+		console.log("15. 冒烟测试全部通过！");
 		ws.close();
 	} finally {
 		try {

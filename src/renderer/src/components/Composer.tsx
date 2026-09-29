@@ -5,7 +5,9 @@ import {
 	ChevronDown,
 	FileText,
 	Image as ImageIcon,
+	MessagesSquare,
 	Paperclip,
+	Quote,
 	Shield,
 	ShieldAlert,
 	ShieldCheck,
@@ -36,6 +38,22 @@ export type ComposerAttachment =
 			name: string;
 			path: string;
 			relativePath: string;
+	  }
+	| {
+			id: string;
+			type: "session";
+			title: string;
+			file?: string;
+			threadKey?: string;
+			cwd?: string;
+			excerpt?: string;
+	  }
+	| {
+			id: string;
+			type: "message-record";
+			role: "user" | "assistant";
+			content: string;
+			summary: string;
 	  };
 
 interface PerfStats {
@@ -285,14 +303,51 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 		const files = attachments.filter(
 			(a): a is Extract<ComposerAttachment, { type: "file" }> => a.type === "file",
 		);
+		const sessionAtts = attachments.filter(
+			(a): a is Extract<ComposerAttachment, { type: "session" }> => a.type === "session",
+		);
+		const messageRecords = attachments.filter(
+			(a): a is Extract<ComposerAttachment, { type: "message-record" }> => a.type === "message-record",
+		);
 
 		let message = trimmed;
+		const extraSections: string[] = [];
+
 		if (files.length > 0) {
 			const refs = files.map(f => `- \`${f.relativePath || f.path}\``).join("\n");
+			extraSections.push(`[附带文件]:\n${refs}`);
+		}
+
+		if (sessionAtts.length > 0) {
+			const sessionRefs = sessionAtts
+				.map(s => {
+					const parts = [`- 对话标题: 《${s.title}》`];
+					if (s.file) parts.push(`  会话文件: \`${s.file}\``);
+					if (s.cwd) parts.push(`  关联项目: \`${s.cwd}\``);
+					if (s.excerpt) {
+						parts.push(`  近期对话上下文摘要:\n  > ${s.excerpt.replace(/\n/g, "\n  > ")}`);
+					}
+					return parts.join("\n");
+				})
+				.join("\n\n");
+			extraSections.push(`[引入的对话记录]:\n${sessionRefs}\n(注：请参考以上引入的历史会话背景，如需查阅更多细节可直接读取对应会话文件)`);
+		}
+
+		if (messageRecords.length > 0) {
+			const quoteRefs = messageRecords
+				.map(m => {
+					const roleLabel = m.role === "user" ? "用户提问" : "助手回复";
+					return `> [引用${roleLabel}]:\n> ${m.content.replace(/\n/g, "\n> ")}`;
+				})
+				.join("\n\n");
+			extraSections.push(`[引用的历史消息]:\n${quoteRefs}`);
+		}
+
+		if (extraSections.length > 0) {
 			if (message) {
-				message = `${message}\n\n[附带文件]:\n${refs}`;
+				message = `${message}\n\n${extraSections.join("\n\n")}`;
 			} else {
-				message = `请查看以下附带文件：\n${refs}`;
+				message = `请参考以下引入的内容与上下文：\n\n${extraSections.join("\n\n")}`;
 			}
 		}
 		if (trimmed) {
@@ -308,16 +363,44 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 				trimmed,
 				message,
 				images.length > 0 ? images : undefined,
-				attachments.map(a => ({
-					id: a.id,
-					type: a.type,
-					name: a.name,
-					path: a.path,
-					relativePath: a.type === "file" ? a.relativePath : undefined,
-					mimeType: a.type === "image" ? a.mimeType : undefined,
-					data: a.type === "image" ? a.data : undefined,
-					previewUrl: a.type === "image" ? a.previewUrl : undefined,
-				})),
+				attachments.map(a => {
+					if (a.type === "image") {
+						return {
+							id: a.id,
+							type: "image",
+							name: a.name,
+							path: a.path,
+							mimeType: a.mimeType,
+							data: a.data,
+							previewUrl: a.previewUrl,
+						};
+					}
+					if (a.type === "session") {
+						return {
+							id: a.id,
+							type: "session",
+							name: `对话: ${a.title}`,
+							sessionTitle: a.title,
+							sessionFile: a.file,
+						};
+					}
+					if (a.type === "message-record") {
+						return {
+							id: a.id,
+							type: "message-record",
+							name: `引用: ${a.summary}`,
+							quoteRole: a.role,
+							quoteContent: a.content,
+						};
+					}
+					return {
+						id: a.id,
+						type: "file",
+						name: a.name,
+						path: a.path,
+						relativePath: a.relativePath,
+					};
+				}),
 			);
 			return;
 		}
@@ -339,6 +422,23 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 						mimeType: att.mimeType || "image/png",
 						data: att.data || "",
 						previewUrl: att.previewUrl || "",
+					};
+				}
+				if (att.type === "session") {
+					return {
+						id: att.id,
+						type: "session",
+						title: att.sessionTitle || att.name.replace(/^对话:\s*/, ""),
+						file: att.sessionFile,
+					};
+				}
+				if (att.type === "message-record") {
+					return {
+						id: att.id,
+						type: "message-record",
+						role: att.quoteRole || "user",
+						content: att.quoteContent || att.name,
+						summary: att.name.replace(/^引用:\s*/, ""),
 					};
 				}
 				return {
@@ -437,6 +537,82 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 		e.stopPropagation();
 		dragCounter.current = 0;
 		setIsDragging(false);
+
+		// 1. 检查是否拖入了对话记录 (application/x-omp-session)
+		const sessionData = e.dataTransfer.getData("application/x-omp-session");
+		if (sessionData) {
+			try {
+				const parsed = JSON.parse(sessionData) as {
+					type: string;
+					title: string;
+					file?: string;
+					threadKey?: string;
+					cwd?: string;
+				};
+				const attId = crypto.randomUUID();
+				setAttachments(prev => {
+					if (prev.some(a => a.type === "session" && (a.file === parsed.file || a.title === parsed.title))) {
+						return prev;
+					}
+					return [
+						...prev,
+						{
+							id: attId,
+							type: "session",
+							title: parsed.title || "未命名对话",
+							file: parsed.file,
+							threadKey: parsed.threadKey,
+							cwd: parsed.cwd,
+						},
+					];
+				});
+
+				if (parsed.file) {
+					void window.omp.readSessionExcerpt(parsed.file, 6)
+						.then(excerpt => {
+							if (excerpt) {
+								setAttachments(prev =>
+									prev.map(a => (a.id === attId && a.type === "session" ? { ...a, excerpt } : a)),
+								);
+							}
+						})
+						.catch(() => {});
+				}
+				inputRef.current?.focus();
+				return;
+			} catch (err) {
+				console.error("Failed to parse dropped session:", err);
+			}
+		}
+
+		// 2. 检查是否拖入了某条单条消息记录 (application/x-omp-message)
+		const messageData = e.dataTransfer.getData("application/x-omp-message");
+		if (messageData) {
+			try {
+				const parsed = JSON.parse(messageData) as {
+					type: string;
+					role: "user" | "assistant";
+					content: string;
+					summary: string;
+				};
+				setAttachments(prev => [
+					...prev,
+					{
+						id: crypto.randomUUID(),
+						type: "message-record",
+						role: parsed.role,
+						content: parsed.content,
+						summary: parsed.summary || parsed.content.slice(0, 40),
+					},
+				]);
+				inputRef.current?.focus();
+				return;
+			} catch (err) {
+				console.error("Failed to parse dropped message record:", err);
+			}
+		}
+
+		// 3. 原生文件/图片拖拽
 		if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
 			const newAtts = await processDroppedFiles(e.dataTransfer.files, thread.cwd);
 			if (newAtts.length > 0) {
@@ -498,7 +674,7 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 			{isDragging && (
 				<div className="cp-drop-overlay">
 					<UploadCloud size={28} />
-					<span>拖放文件或图片到此处</span>
+					<span>拖放文件、图片或对话记录到此处引入</span>
 				</div>
 			)}
 
@@ -507,14 +683,38 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 			{attachments.length > 0 && (
 				<div className="cp-attachments">
 					{attachments.map(att => (
-						<div key={att.id} className="cp-att-item">
+						<div
+							key={att.id}
+							className={`cp-att-item${att.type === "session" ? " is-session" : att.type === "message-record" ? " is-message" : ""}`}
+						>
 							{att.type === "image" ? (
 								<img src={att.previewUrl} alt={att.name} className="cp-att-thumb" />
+							) : att.type === "session" ? (
+								<MessagesSquare size={14} className="cp-att-icon is-session" />
+							) : att.type === "message-record" ? (
+								<Quote size={14} className="cp-att-icon is-message" />
 							) : (
 								<FileText size={14} className="cp-att-icon" />
 							)}
-							<span className="cp-att-name" title={att.type === "file" ? att.path : att.name}>
-								{att.type === "file" ? att.relativePath : att.name}
+							<span
+								className="cp-att-name"
+								title={
+									att.type === "session"
+										? `引入对话记录: 《${att.title}》${att.file ? `\n文件: ${att.file}` : ""}`
+										: att.type === "message-record"
+										? `引用${att.role === "user" ? "用户提问" : "助手回复"}: ${att.content}`
+										: att.type === "file"
+										? att.path
+										: att.name
+								}
+							>
+								{att.type === "session"
+									? `对话: ${att.title}`
+									: att.type === "message-record"
+									? `引用: ${att.summary}`
+									: att.type === "file"
+									? att.relativePath
+									: att.name}
 							</span>
 							<button
 								type="button"

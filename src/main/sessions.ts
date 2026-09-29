@@ -1,6 +1,6 @@
 // 扫描 omp 会话目录，按项目（cwd）分组。
 import { existsSync } from "node:fs";
-import { open, readdir, stat, unlink } from "node:fs/promises";
+import { open, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join, resolve, sep } from "node:path";
 import type { ProjectSummary, SessionSummary } from "@shared/ipc";
@@ -126,4 +126,90 @@ export async function deleteSessionFile(file: string): Promise<boolean> {
 		return true;
 	}
 	return false;
+}
+
+export async function renameSessionFile(file: string, newTitle: string): Promise<boolean> {
+	const dir = resolve(sessionsDir());
+	const normalized = resolve(file);
+	if (!normalized.startsWith(dir + sep)) {
+		throw new Error("非法会话路径");
+	}
+	if (!existsSync(normalized)) return false;
+
+	const content = await readFile(normalized, "utf8");
+	const trimmedTitle = newTitle.trim();
+	const newlineIndex = content.indexOf("\n");
+	const firstLine = newlineIndex !== -1 ? content.slice(0, newlineIndex) : content;
+	const rest = newlineIndex !== -1 ? content.slice(newlineIndex + 1) : "";
+
+	let updated = false;
+	try {
+		const parsed = JSON.parse(firstLine) as Record<string, unknown>;
+		if (parsed.type === "title") {
+			parsed.title = trimmedTitle;
+			parsed.source = "custom";
+			parsed.updatedAt = new Date().toISOString();
+			await writeFile(normalized, `${JSON.stringify(parsed)}\n${rest}`, "utf8");
+			updated = true;
+		}
+	} catch {
+		// first line wasn't valid JSON title
+	}
+
+	if (!updated) {
+		const newTitleObj = {
+			type: "title",
+			v: 1,
+			title: trimmedTitle,
+			source: "custom",
+			updatedAt: new Date().toISOString(),
+		};
+		await writeFile(normalized, `${JSON.stringify(newTitleObj)}\n${content}`, "utf8");
+	}
+	return true;
+}
+
+export async function readSessionExcerpt(file: string, maxTurns = 6): Promise<string> {
+	const dir = resolve(sessionsDir());
+	const normalized = resolve(file);
+	if (!normalized.startsWith(dir + sep)) {
+		throw new Error("非法会话路径");
+	}
+	if (!existsSync(normalized)) return "";
+
+	try {
+		const content = await readFile(normalized, "utf8");
+		const lines = content.split("\n");
+		const turns: Array<{ role: "user" | "assistant"; text: string }> = [];
+
+		for (const line of lines) {
+			if (!line.trim()) continue;
+			try {
+				const row = JSON.parse(line) as Record<string, unknown>;
+				if (row.type === "message") {
+					const msg = row.message as { role?: string; content?: unknown } | undefined;
+					if (msg && (msg.role === "user" || msg.role === "assistant")) {
+						const text = textOf(msg.content).trim();
+						if (text) {
+							turns.push({
+								role: msg.role as "user" | "assistant",
+								text: text.length > 500 ? `${text.slice(0, 500)}...` : text,
+							});
+						}
+					}
+				}
+			} catch {
+				// ignore malformed line
+			}
+		}
+
+		const recent = turns.slice(-maxTurns);
+		if (recent.length === 0) return "";
+
+		return recent
+			.map(t => `${t.role === "user" ? "用户" : "助手"}: ${t.text}`)
+			.join("\n\n");
+	} catch {
+		return "";
+	}
 }

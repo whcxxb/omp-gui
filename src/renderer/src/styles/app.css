@@ -314,6 +314,14 @@
 	transition: background-color 100ms ease, color 100ms ease;
 }
 
+.sb-thread[draggable="true"] {
+	cursor: grab;
+}
+
+.sb-thread[draggable="true"]:active {
+	cursor: grabbing;
+}
+
 .sb-thread:hover {
 	background: var(--bg-hover);
 	color: var(--fg);
@@ -331,6 +339,21 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+.sb-thread-rename-input {
+	flex: 1;
+	min-width: 0;
+	height: 22px;
+	padding: 0 6px;
+	margin: 0;
+	background: var(--bg-inset);
+	border: 1px solid var(--accent);
+	border-radius: var(--radius-sm);
+	color: var(--fg);
+	font-size: 12px;
+	font-family: inherit;
+	outline: none;
 }
 
 .sb-thread-empty {
@@ -429,6 +452,14 @@
 	user-select: none;
 	-webkit-user-select: none;
 }
+.mh-title-wrap {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+	-webkit-app-region: no-drag;
+}
+
 .mh-title {
 	min-width: 0;
 	overflow: hidden;
@@ -436,6 +467,45 @@
 	font-weight: 600;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+	cursor: pointer;
+}
+
+.mh-title-edit {
+	opacity: 0;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 18px;
+	height: 18px;
+	border: none;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: var(--fg-faint);
+	cursor: pointer;
+	transition: opacity 120ms ease, color 120ms ease;
+	flex: none;
+}
+
+.mh-title-wrap:hover .mh-title-edit {
+	opacity: 1;
+}
+
+.mh-title-edit:hover {
+	color: var(--fg);
+	background: var(--bg-hover);
+}
+
+.mh-title-input {
+	height: 24px;
+	padding: 0 8px;
+	background: var(--bg-inset);
+	border: 1px solid var(--accent);
+	border-radius: var(--radius-sm);
+	color: var(--fg);
+	font-size: 13px;
+	font-weight: 500;
+	font-family: inherit;
+	outline: none;
 }
 .mh-mode {
 	display: inline-flex;
@@ -1713,6 +1783,16 @@
 	border-radius: var(--radius-lg);
 	background: var(--bg-raised);
 	border: 1px solid var(--border);
+	transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.th-user-bubble[draggable="true"] {
+	cursor: grab;
+}
+
+.th-user-bubble[draggable="true"]:active {
+	cursor: grabbing;
+	opacity: 0.85;
 }
 
 .th-user-text {
@@ -1744,10 +1824,43 @@
 }
 
 .th-assistant {
+	position: relative;
 	display: flex;
 	flex-direction: column;
 	gap: 10px;
 	min-width: 0;
+}
+
+.th-assistant-drag {
+	position: absolute;
+	top: -4px;
+	right: -4px;
+	opacity: 0;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 22px;
+	height: 22px;
+	border-radius: var(--radius-sm);
+	background: var(--bg-raised);
+	border: 1px solid var(--border);
+	color: var(--fg-faint);
+	cursor: grab;
+	transition: opacity 120ms ease, color 120ms ease;
+	z-index: 2;
+}
+
+.th-assistant:hover .th-assistant-drag {
+	opacity: 1;
+}
+
+.th-assistant-drag:hover {
+	color: var(--fg);
+	background: var(--bg-hover);
+}
+
+.th-assistant-drag:active {
+	cursor: grabbing;
 }
 
 .th-assistant > .tr-md {
@@ -1918,6 +2031,24 @@
 	background: var(--bg-inset);
 	font-size: 12px;
 	color: var(--fg);
+}
+
+.cp-att-item.is-session {
+	border-color: oklch(0.68 0.15 270 / 40%);
+	background: oklch(0.68 0.15 270 / 8%);
+}
+
+.cp-att-item.is-session .cp-att-icon {
+	color: oklch(0.72 0.16 270);
+}
+
+.cp-att-item.is-message {
+	border-color: oklch(0.7 0.14 160 / 40%);
+	background: oklch(0.7 0.14 160 / 8%);
+}
+
+.cp-att-item.is-message .cp-att-icon {
+	color: oklch(0.72 0.15 160);
 }
 
 .cp-att-thumb {
@@ -2326,6 +2457,15 @@
 
 /* ---------- 快捷按钮与操作 ---------- */
 
+.sb-thread-actions {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	margin-left: auto;
+	flex-shrink: 0;
+}
+
+.sb-thread-rename,
 .sb-thread-delete {
 	opacity: 0;
 	display: flex;
@@ -2338,13 +2478,18 @@
 	background: transparent;
 	color: var(--fg-faint);
 	cursor: pointer;
-	transition: opacity 120ms ease, color 120ms ease;
-	margin-left: 4px;
+	transition: opacity 120ms ease, color 120ms ease, background-color 100ms ease;
 	flex-shrink: 0;
 }
 
+.sb-thread:hover .sb-thread-rename,
 .sb-thread:hover .sb-thread-delete {
 	opacity: 1;
+}
+
+.sb-thread-rename:hover {
+	color: var(--fg);
+	background: var(--bg-hover);
 }
 
 .sb-thread-delete:hover {

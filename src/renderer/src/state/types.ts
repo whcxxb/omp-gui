@@ -6,13 +6,17 @@ import type { AssistantMessage, ImageContent, SessionEntry } from "@/collab/wire
 
 export interface QueuedPromptAttachment {
 	id: string;
-	type: "image" | "file";
+	type: "image" | "file" | "session" | "message-record";
 	name: string;
 	path?: string;
 	relativePath?: string;
 	mimeType?: string;
 	data?: string;
 	previewUrl?: string;
+	sessionFile?: string;
+	sessionTitle?: string;
+	quoteRole?: "user" | "assistant";
+	quoteContent?: string;
 }
 
 export interface QueuedPrompt {

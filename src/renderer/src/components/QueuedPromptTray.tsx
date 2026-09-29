@@ -2,7 +2,9 @@ import {
 	Clock,
 	CornerDownLeft,
 	FileText,
+	MessagesSquare,
 	Pencil,
+	Quote,
 	Trash2,
 	Zap,
 } from "lucide-react";
@@ -74,6 +76,10 @@ export function QueuedPromptTray(props: QueuedPromptTrayProps): ReactNode {
 									<div key={att.id} className="qp-att-tag">
 										{att.type === "image" && att.previewUrl ? (
 											<img src={att.previewUrl} alt={att.name} className="qp-att-thumb" />
+										) : att.type === "session" ? (
+											<MessagesSquare size={11} />
+										) : att.type === "message-record" ? (
+											<Quote size={11} />
 										) : (
 											<FileText size={11} />
 										)}
