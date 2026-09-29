@@ -107,8 +107,11 @@ export function groupProjects(sessions: SessionSummary[], extraPaths: string[], 
 		project.sessions.push(session);
 		project.updatedAt = Math.max(project.updatedAt, session.updatedAt);
 	}
-	for (const project of map.values()) project.sessions.sort((a, b) => b.updatedAt - a.updatedAt);
-	return [...map.values()].filter(p => !hidden.has(p.path)).sort((a, b) => b.updatedAt - a.updatedAt);
+	// 仅对每个项目内部的会话按更新时间降序排序，项目文件夹保持原有的添加顺序，不随会话活动乱序
+	for (const project of map.values()) {
+		project.sessions.sort((a, b) => b.updatedAt - a.updatedAt);
+	}
+	return [...map.values()].filter(p => !hidden.has(p.path));
 }
 
 export async function deleteSessionFile(file: string): Promise<boolean> {

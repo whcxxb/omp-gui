@@ -28,7 +28,7 @@ function getThreadLatestTime(thread: Thread): number {
 			if (!isNaN(ts)) return ts;
 		}
 	}
-	return 0;
+	return thread.updatedAt ?? thread.createdAt ?? 0;
 }
 
 interface SidebarProps {

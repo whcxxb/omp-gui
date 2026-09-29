@@ -128,4 +128,6 @@ export interface Thread {
 	uiRequests: UiRequest[];
 	queuedPrompts: QueuedPrompt[];
 	notices: Notice[];
+	createdAt: number;
+	updatedAt: number;
 }

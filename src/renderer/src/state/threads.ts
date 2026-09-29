@@ -163,6 +163,7 @@ async function attach(key: string): Promise<void> {
 }
 
 function blankThread(cwd: string, sessionFile?: string, approvalMode: ApprovalMode = defaultApprovalMode): Thread {
+	const now = Date.now();
 	return {
 		key: crypto.randomUUID(),
 		runtimeId: null,
@@ -184,6 +185,8 @@ function blankThread(cwd: string, sessionFile?: string, approvalMode: ApprovalMo
 		uiRequests: [],
 		queuedPrompts: [],
 		notices: [],
+		createdAt: now,
+		updatedAt: now,
 	};
 }
 
@@ -351,7 +354,7 @@ export function answerUiRequest(key: string, id: string, response: Frame): void 
 function applyFrame(thread: Thread, frame: Frame): Partial<Thread> | null {
 	switch (frame.type) {
 		case "agent_start":
-			return { working: true };
+			return { working: true, updatedAt: Date.now() };
 		case "agent_end":
 			void refreshState(thread.key);
 			playSound("complete");
@@ -361,7 +364,7 @@ function applyFrame(thread: Thread, frame: Frame): Partial<Thread> | null {
 			setTimeout(() => {
 				void dispatchNextQueuedPrompt(thread.key);
 			}, 120);
-			return { working: false, activeTools: new Map() };
+			return { working: false, activeTools: new Map(), updatedAt: Date.now() };
 		case "message_start":
 		case "message_update": {
 			const message = frame.message as WireMessage;
@@ -371,8 +374,8 @@ function applyFrame(thread: Thread, frame: Frame): Partial<Thread> | null {
 		case "message_end": {
 			const message = frame.message as WireMessage;
 			const entries = [...thread.entries, messageEntry(message, thread.entries.at(-1))];
-			if (message.role === "assistant") return { entries, stream: null, streamDone: false };
-			return { entries };
+			if (message.role === "assistant") return { entries, stream: null, streamDone: false, updatedAt: Date.now() };
+			return { entries, updatedAt: Date.now() };
 		}
 		case "tool_execution_start": {
 			const tool: ActiveTool = {
