@@ -12,7 +12,6 @@ import type {
 	SessionStateSnapshot,
 	SubagentProgress,
 	SubagentSnapshot,
-	SlashCommand,
 	Thread,
 	UiRequest,
 } from "./types";
@@ -139,33 +138,6 @@ async function initSubagents(key: string): Promise<void> {
 	}
 }
 
-async function loadCommands(key: string): Promise<void> {
-	const thread = getThread(key);
-	if (!thread?.runtimeId) return;
-	try {
-		const res = await window.omp.request<{ commands?: SlashCommand[] } | SlashCommand[]>(thread.runtimeId, {
-			type: "get_available_commands",
-		});
-		const list = Array.isArray(res) ? res : (res as { commands?: SlashCommand[] })?.commands;
-		if (Array.isArray(list)) {
-			update(key, () => ({ availableCommands: list }));
-		}
-	} catch {
-		// 忽略
-	}
-}
-
-async function loadSkills(key: string): Promise<void> {
-	const thread = getThread(key);
-	if (!thread) return;
-	try {
-		const list = await window.omp.listSkills(thread.cwd);
-		update(key, () => ({ availableSkills: list }));
-	} catch {
-		// 忽略
-	}
-}
-
 
 
 /** 为线程启动（或重启）omp 进程。 */
@@ -184,8 +156,6 @@ async function attach(key: string): Promise<void> {
 			refreshState(key),
 			thread.sessionFile ? loadEntries(key) : Promise.resolve(),
 			initSubagents(key),
-			loadCommands(key),
-			loadSkills(key),
 		]);
 	} catch (error) {
 		update(key, () => ({ status: "error", error: error instanceof Error ? error.message : String(error) }));
@@ -214,8 +184,6 @@ function blankThread(cwd: string, sessionFile?: string, approvalMode: ApprovalMo
 		uiRequests: [],
 		queuedPrompts: [],
 		notices: [],
-		availableCommands: [],
-		availableSkills: [],
 	};
 }
 
@@ -263,40 +231,7 @@ export async function sendPrompt(key: string, message: string, images?: ImageCon
 		!thread.state?.sessionName &&
 		!thread.entries.some(e => e.type === "message" && e.message.role === "user");
 
-	const skillMatch = message.trim().match(/^[\\/]([a-zA-Z0-9_-]+)(?:\s+([\s\S]*))?$/);
-	let actualMessage = message;
-	let titleSeed = message;
-	if (skillMatch) {
-		const rawName = skillMatch[1].toLowerCase();
-		const normName = rawName.replace(/[_-]/g, "");
-		const userArgs = (skillMatch[2] || "").trim();
-		titleSeed = userArgs ? `${rawName}: ${userArgs}` : rawName;
-		let targetSkill = (thread.availableSkills ?? []).find(
-			s => s.name.toLowerCase() === rawName || s.name.toLowerCase().replace(/[_-]/g, "") === normName,
-		);
-		if (!targetSkill && window.omp.listSkills) {
-			try {
-				const fresh = await window.omp.listSkills(thread.cwd);
-				targetSkill = fresh.find(
-					s => s.name.toLowerCase() === rawName || s.name.toLowerCase().replace(/[_-]/g, "") === normName,
-				);
-			} catch {
-				// ignore
-			}
-		}
-
-		if (targetSkill) {
-			try {
-				const content = await window.omp.readSkill(targetSkill.path);
-				const body = content.replace(/^---\n[\s\S]*?\n---\n/, "").trim();
-				actualMessage = `<skill name="${targetSkill.name}">\n${body}\n</skill>\n\n${userArgs || "请根据上述技能规范与指南执行任务。"}`;
-			} catch {
-				// 回退原指令
-			}
-		}
-	}
-
-	const command: Frame = { type: "prompt", message: actualMessage };
+	const command: Frame = { type: "prompt", message };
 	if (images && images.length > 0) command.images = images;
 	if (thread.working) command.streamingBehavior = "followUp";
 	try {
@@ -306,7 +241,7 @@ export async function sendPrompt(key: string, message: string, images?: ImageCon
 		if (isFirstUserPrompt && message.trim()) {
 			void (async () => {
 				try {
-					const title = await window.omp.generateTitle(titleSeed);
+					const title = await window.omp.generateTitle(message);
 					if (title) {
 						const current = getThread(key);
 						if (current?.runtimeId) {
@@ -487,13 +422,6 @@ function applyFrame(thread: Thread, frame: Frame): Partial<Thread> | null {
 		case "model_changed":
 			void refreshState(thread.key);
 			return null;
-		case "available_commands_update": {
-			const raw = frame.commands;
-			if (Array.isArray(raw)) {
-				return { availableCommands: raw as SlashCommand[] };
-			}
-			return null;
-		}
 		case "subagent_lifecycle": {
 			const p = frame.payload as Record<string, unknown> | undefined;
 			if (!p || typeof p.id !== "string") return null;
