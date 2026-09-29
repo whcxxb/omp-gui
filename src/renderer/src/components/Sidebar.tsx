@@ -138,7 +138,7 @@ export function Sidebar(props: SidebarProps): ReactNode {
 
 				seenKeys.add(t.key);
 				const threadTime = getThreadLatestTime(t);
-				const updatedAt = threadTime > 0 ? threadTime : Date.now();
+				const updatedAt = threadTime > 0 ? threadTime : (t.updatedAt ?? t.createdAt ?? 0);
 				const title = t.state?.sessionName || "新对话";
 
 				items.push({
