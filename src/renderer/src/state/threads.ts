@@ -263,14 +263,28 @@ export async function sendPrompt(key: string, message: string, images?: ImageCon
 		!thread.state?.sessionName &&
 		!thread.entries.some(e => e.type === "message" && e.message.role === "user");
 
-	const skillMatch = message.trim().match(/^\/([a-zA-Z0-9_-]+)(?:\s+([\s\S]*))?$/);
+	const skillMatch = message.trim().match(/^[\\/]([a-zA-Z0-9_-]+)(?:\s+([\s\S]*))?$/);
 	let actualMessage = message;
 	let titleSeed = message;
 	if (skillMatch) {
-		const skillName = skillMatch[1].toLowerCase();
+		const rawName = skillMatch[1].toLowerCase();
+		const normName = rawName.replace(/[_-]/g, "");
 		const userArgs = (skillMatch[2] || "").trim();
-		titleSeed = userArgs ? `${skillName}: ${userArgs}` : skillName;
-		const targetSkill = thread.availableSkills.find(s => s.name.toLowerCase() === skillName);
+		titleSeed = userArgs ? `${rawName}: ${userArgs}` : rawName;
+		let targetSkill = (thread.availableSkills ?? []).find(
+			s => s.name.toLowerCase() === rawName || s.name.toLowerCase().replace(/[_-]/g, "") === normName,
+		);
+		if (!targetSkill && window.omp.listSkills) {
+			try {
+				const fresh = await window.omp.listSkills(thread.cwd);
+				targetSkill = fresh.find(
+					s => s.name.toLowerCase() === rawName || s.name.toLowerCase().replace(/[_-]/g, "") === normName,
+				);
+			} catch {
+				// ignore
+			}
+		}
+
 		if (targetSkill) {
 			try {
 				const content = await window.omp.readSkill(targetSkill.path);

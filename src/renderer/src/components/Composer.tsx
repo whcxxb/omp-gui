@@ -15,7 +15,8 @@ import {
 	UploadCloud,
 	X,
 } from "lucide-react";
-import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { SkillItem } from "@shared/ipc";
 import type { ImageContent, SessionEntry } from "@/collab/wire/index";
 import { playSound } from "@/lib/sound";
 import { abort, enqueuePrompt, removeQueuedPrompt, runCommand, sendPrompt, setApprovalMode, setModel, setThinkingLevel } from "@/state/threads";
@@ -269,19 +270,51 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 	const draftRef = useRef<string>("");
 	const [slashDismissed, setSlashDismissed] = useState(false);
 	const [slashSelectedIdx, setSlashSelectedIdx] = useState(0);
+	const [dynamicSkills, setDynamicSkills] = useState<SkillItem[]>([]);
+
+	// 动态实时拉取当前项目与全局下的技能列表
+	const refreshSkills = useCallback(async () => {
+		try {
+			const list = await window.omp.listSkills(thread.cwd);
+			if (Array.isArray(list)) setDynamicSkills(list);
+		} catch {
+			// ignore
+		}
+	}, [thread.cwd]);
+
+	useEffect(() => {
+		void refreshSkills();
+	}, [refreshSkills]);
+
+	const allSkills = useMemo<SkillItem[]>(() => {
+		const map = new Map<string, SkillItem>();
+		for (const s of dynamicSkills) map.set(s.name.toLowerCase(), s);
+		for (const s of thread.availableSkills ?? []) map.set(s.name.toLowerCase(), s);
+		return [...map.values()];
+	}, [dynamicSkills, thread.availableSkills]);
 
 	const slashMatch = useMemo(() => {
-		if (!text.startsWith("/")) return null;
-		const spaceIdx = text.indexOf(" ");
+		const isSlash = text.startsWith("/") || text.startsWith("\\");
+		if (!isSlash) return null;
+		const spaceIdx = text.search(/\s/);
 		if (spaceIdx !== -1) return null;
-		const query = text.slice(1).toLowerCase();
+		const rawQuery = text.slice(1).toLowerCase();
+		const query = rawQuery.replace(/[_-]/g, "");
 
 		const candidates: SlashCandidate[] = [];
 
 		// 1. 本地发现的 Skills（优先项目级，然后全局级）
-		const skills = thread.availableSkills ?? [];
-		for (const s of skills) {
-			if (!query || s.name.toLowerCase().includes(query) || (s.description && s.description.toLowerCase().includes(query))) {
+		for (const s of allSkills) {
+			const sName = s.name.toLowerCase();
+			const sNorm = sName.replace(/[_-]/g, "");
+			const sDesc = (s.description || "").toLowerCase();
+			const matches =
+				!rawQuery ||
+				sName.includes(rawQuery) ||
+				sNorm.includes(query) ||
+				sDesc.includes(rawQuery);
+
+			if (matches) {
 				candidates.push({
 					id: `skill-${s.path}`,
 					kind: "skill",
@@ -296,7 +329,16 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 		const commands = thread.availableCommands ?? [];
 		for (const c of commands) {
 			if (c.name.startsWith("skill:")) continue;
-			if (!query || c.name.toLowerCase().includes(query) || (c.description && c.description.toLowerCase().includes(query))) {
+			const cName = c.name.toLowerCase();
+			const cNorm = cName.replace(/[_-]/g, "");
+			const cDesc = (c.description || "").toLowerCase();
+			const matches =
+				!rawQuery ||
+				cName.includes(rawQuery) ||
+				cNorm.includes(query) ||
+				cDesc.includes(rawQuery);
+
+			if (matches) {
 				candidates.push({
 					id: `cmd-${c.name}`,
 					kind: "command",
@@ -308,19 +350,26 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 		}
 
 		return candidates;
-	}, [text, thread.availableSkills, thread.availableCommands]);
+	}, [text, allSkills, thread.availableCommands]);
 
 	const activeSkillPill = useMemo(() => {
 		const trimmed = text.trim();
-		if (!trimmed.startsWith("/")) return null;
-		const match = trimmed.match(/^\/([a-zA-Z0-9_-]+)/);
+		const isSlash = trimmed.startsWith("/") || trimmed.startsWith("\\");
+		if (!isSlash) return null;
+		const match = trimmed.match(/^[\\/]([a-zA-Z0-9_-]+)/);
 		if (!match) return null;
-		const skillName = match[1].toLowerCase();
-		return (thread.availableSkills ?? []).find(s => s.name.toLowerCase() === skillName) ?? null;
-	}, [text, thread.availableSkills]);
+		const rawName = match[1].toLowerCase();
+		const normName = rawName.replace(/[_-]/g, "");
+		return (
+			allSkills.find(s => s.name.toLowerCase() === rawName) ??
+			allSkills.find(s => s.name.toLowerCase().replace(/[_-]/g, "") === normName) ??
+			null
+		);
+	}, [text, allSkills]);
 
 	const applySlashCandidate = (candidate: SlashCandidate): void => {
-		setText(`/${candidate.name} `);
+		const prefix = text.startsWith("\\") ? "\\" : "/";
+		setText(`${prefix}${candidate.name} `);
 		setSlashDismissed(true);
 		playSound("toggle");
 		inputRef.current?.focus();
@@ -612,7 +661,7 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 						className="cp-skill-pill-close"
 						title="清除技能引用"
 						onClick={() => {
-							const rest = text.replace(/^\/[a-zA-Z0-9_-]+\s*/, "");
+							const rest = text.replace(/^[\\/][a-zA-Z0-9_-]+\s*/, "");
 							setText(rest);
 							inputRef.current?.focus();
 						}}
@@ -707,6 +756,7 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 					setSlashDismissed(false);
 					setSlashSelectedIdx(0);
 				}}
+				onFocus={() => void refreshSkills()}
 				onKeyDown={onKeyDown}
 				onPaste={onPaste}
 			/>

@@ -33,7 +33,7 @@ function ThinkingBlock({ text, redacted, live }: { text: string; redacted?: bool
 
 function renderTextWithSkillBadge(text: string): ReactNode {
 	const trimmed = text.trim();
-	const match = trimmed.match(/^\/([a-zA-Z0-9_-]+)(?:\s+([\s\S]*))?$/);
+	const match = trimmed.match(/^[\\/]([a-zA-Z0-9_-]+)(?:\s+([\s\S]*))?$/);
 	if (match) {
 		const skillName = match[1];
 		const rest = match[2];
