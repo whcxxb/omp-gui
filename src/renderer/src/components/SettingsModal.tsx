@@ -26,6 +26,7 @@ import { THEMES, type Theme, applyTheme, loadTheme } from "@/lib/theme";
 import { getSoundVolume, isSoundEnabled, playSound, setSoundEnabled, setSoundVolume } from "@/lib/sound";
 import { SkillManager } from "./SkillManager";
 
+import upstreamMeta from "@/collab/UPSTREAM.json";
 export interface SettingsModalProps {
 	isOpen: boolean;
 	onClose(): void;
@@ -760,7 +761,7 @@ export function SettingsModal(props: SettingsModalProps): ReactNode {
 									</div>
 									<div className="set-about-row">
 										<span className="set-about-label">官方资产同步</span>
-										<span className="set-about-val">@oh-my-pi/collab-web (18.3.2)</span>
+										<span className="set-about-val">@oh-my-pi/collab-web ({upstreamMeta.ompVersion})</span>
 									</div>
 									<div className="set-about-row">
 										<span className="set-about-label">全局配置文件</span>

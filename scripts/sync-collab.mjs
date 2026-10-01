@@ -41,6 +41,7 @@ const COPIES = [
 const EXTRA = [
 	[join(repo, "packages/wire/src/index.ts"), "wire/index.ts"],
 	[join(repo, "packages/wire/src/stream.ts"), "wire/stream.ts"],
+	[join(repo, "packages/wire/src/tsp.ts"), "wire/tsp.ts"],
 	[join(repo, "packages/utils/src/math-delimiters.ts"), "math-delimiters.ts"],
 ];
 // 本地维护、同步时保留的文件
