@@ -1,10 +1,12 @@
-import { ChevronRight, Download, Folder, FolderPlus, PanelLeft, Pencil, Settings, SquarePen, Trash2, X } from "lucide-react";
+import { Archive, ArchiveRestore, ChevronRight, Download, Folder, FolderPlus, PanelLeft, Pencil, Pin, PinOff, Settings, SquarePen, Trash2, X } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectSummary, SessionSummary } from "@shared/ipc";
 import { relativeTime, shortPath } from "@/lib/time";
 import type { Thread } from "@/state/types";
 
 const COLLAPSED_LIMIT = 6;
+const PINNED_STORAGE_KEY = "omp_gui_pinned_sessions";
+const ARCHIVED_STORAGE_KEY = "omp_gui_archived_sessions";
 
 export interface SidebarThreadItem {
 	key: string;
@@ -119,6 +121,87 @@ export function Sidebar(props: SidebarProps): ReactNode {
 
 	const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 	const [expanded, setExpanded] = useState<Set<string>>(new Set());
+	const [pinnedKeys, setPinnedKeys] = useState<Set<string>>(() => {
+		try {
+			const raw = localStorage.getItem(PINNED_STORAGE_KEY);
+			return raw ? new Set(JSON.parse(raw) as string[]) : new Set();
+		} catch {
+			return new Set();
+		}
+	});
+
+	const [archivedKeys, setArchivedKeys] = useState<Set<string>>(() => {
+		try {
+			const raw = localStorage.getItem(ARCHIVED_STORAGE_KEY);
+			return raw ? new Set(JSON.parse(raw) as string[]) : new Set();
+		} catch {
+			return new Set();
+		}
+	});
+
+	const [archivedExpanded, setArchivedExpanded] = useState<Set<string>>(new Set());
+
+	const togglePin = (targetKey: string): void => {
+		setPinnedKeys(prev => {
+			const next = new Set(prev);
+			if (next.has(targetKey)) {
+				next.delete(targetKey);
+			} else {
+				next.add(targetKey);
+				// 置顶时自动解除归档
+				setArchivedKeys(aPrev => {
+					if (aPrev.has(targetKey)) {
+						const aNext = new Set(aPrev);
+						aNext.delete(targetKey);
+						try {
+							localStorage.setItem(ARCHIVED_STORAGE_KEY, JSON.stringify([...aNext]));
+						} catch {
+							// ignore
+						}
+						return aNext;
+					}
+					return aPrev;
+				});
+			}
+			try {
+				localStorage.setItem(PINNED_STORAGE_KEY, JSON.stringify([...next]));
+			} catch {
+				// ignore
+			}
+			return next;
+		});
+	};
+
+	const toggleArchive = (targetKey: string): void => {
+		setArchivedKeys(prev => {
+			const next = new Set(prev);
+			if (next.has(targetKey)) {
+				next.delete(targetKey);
+			} else {
+				next.add(targetKey);
+				// 归档时自动取消置顶
+				setPinnedKeys(pPrev => {
+					if (pPrev.has(targetKey)) {
+						const pNext = new Set(pPrev);
+						pNext.delete(targetKey);
+						try {
+							localStorage.setItem(PINNED_STORAGE_KEY, JSON.stringify([...pNext]));
+						} catch {
+							// ignore
+						}
+						return pNext;
+					}
+					return pPrev;
+				});
+			}
+			try {
+				localStorage.setItem(ARCHIVED_STORAGE_KEY, JSON.stringify([...next]));
+			} catch {
+				// ignore
+			}
+			return next;
+		});
+	};
 
 	const toggle = (set: Set<string>, value: string): Set<string> => {
 		const next = new Set(set);
@@ -197,6 +280,118 @@ export function Sidebar(props: SidebarProps): ReactNode {
 		return map;
 	}, [projects, threads, threadByFile, activeKey]);
 
+	const renderThreadItem = (item: SidebarThreadItem, isArchivedList = false): ReactNode => {
+		const isPinned = pinnedKeys.has(item.key);
+
+		return (
+			<li key={item.key} className="sb-thread-li">
+				<button
+					type="button"
+					className={`sb-thread${item.isActive ? " is-active" : ""}`}
+					title={`${item.title} · ${relativeTime(item.updatedAt)} (可拖拽到输入框引入)`}
+					draggable={editingKey !== item.key}
+					onDragStart={e => {
+						if (editingKey === item.key) {
+							e.preventDefault();
+							return;
+						}
+						const payload = {
+							type: "session",
+							title: item.title,
+							file: item.session?.file,
+							threadKey: item.thread?.key ?? (item.session ? undefined : item.key),
+							cwd: item.session?.cwd ?? (item.thread?.cwd ?? ""),
+						};
+						e.dataTransfer.setData("application/x-omp-session", JSON.stringify(payload));
+						e.dataTransfer.setData("text/plain", `[对话记录: ${item.title}]`);
+						e.dataTransfer.effectAllowed = "copyLink";
+					}}
+					onClick={() => {
+						if (editingKey === item.key) return;
+						if (item.session) props.onOpenSession(item.session);
+						else if (item.thread) props.onSelectThread(item.thread.key);
+					}}
+					onDoubleClick={e => startRenaming(item, e)}
+					onContextMenu={e => {
+						e.preventDefault();
+						e.stopPropagation();
+						setContextMenu({
+							x: e.clientX,
+							y: e.clientY,
+							item,
+							projectPath: item.session?.cwd ?? (item.thread?.cwd ?? ""),
+						});
+					}}
+				>
+					<ThreadDot thread={item.thread} />
+					{editingKey === item.key ? (
+						<input
+							ref={renameInputRef}
+							className="sb-thread-rename-input"
+							value={renameValue}
+							onClick={e => e.stopPropagation()}
+							onChange={e => setRenameValue(e.target.value)}
+							onKeyDown={e => {
+								if (e.key === "Enter") {
+									e.preventDefault();
+									void commitRenaming(item);
+								} else if (e.key === "Escape") {
+									e.preventDefault();
+									cancelRenaming();
+								}
+							}}
+							onBlur={() => void commitRenaming(item)}
+						/>
+					) : (
+						<span className="sb-thread-title">{item.title}</span>
+					)}
+					<div className="sb-thread-actions" onClick={e => e.stopPropagation()}>
+						{!isArchivedList && editingKey !== item.key && (
+							<button
+								type="button"
+								className={`sb-thread-pin${isPinned ? " is-pinned" : ""}`}
+								title={isPinned ? "取消置顶" : "置顶此对话"}
+								onClick={e => {
+									e.stopPropagation();
+									togglePin(item.key);
+								}}
+							>
+								{isPinned ? <PinOff size={11} /> : <Pin size={11} />}
+							</button>
+						)}
+						{editingKey !== item.key && (
+							<button
+								type="button"
+								className="sb-thread-rename"
+								title="重命名此对话"
+								onClick={e => startRenaming(item, e)}
+							>
+								<Pencil size={11} />
+							</button>
+						)}
+						{(item.session || item.thread) && editingKey !== item.key && (
+							<button
+								type="button"
+								className="sb-thread-delete"
+								title={item.session ? "删除此会话" : "关闭此新对话"}
+								onClick={e => {
+									e.stopPropagation();
+									if (item.session) {
+										props.onDeleteSession(item.session.file);
+									} else if (item.thread && props.onCloseThread) {
+										props.onCloseThread(item.thread.key);
+									}
+								}}
+							>
+								<Trash2 size={12} />
+							</button>
+						)}
+					</div>
+				</button>
+			</li>
+		);
+	};
+
 	return (
 		<aside className="sb">
 			<div
@@ -246,8 +441,13 @@ export function Sidebar(props: SidebarProps): ReactNode {
 				{projects.map(project => {
 					const isCollapsed = collapsed.has(project.path);
 					const allItems = projectThreadItems.get(project.path) ?? [];
+					const pinnedItems = allItems.filter(item => pinnedKeys.has(item.key));
+					const archivedItems = allItems.filter(item => archivedKeys.has(item.key));
+					const activeItems = allItems.filter(item => !pinnedKeys.has(item.key) && !archivedKeys.has(item.key));
 					const showAll = expanded.has(project.path);
-					const items = showAll ? allItems : allItems.slice(0, COLLAPSED_LIMIT);
+					const visibleActiveItems = showAll ? activeItems : activeItems.slice(0, COLLAPSED_LIMIT);
+					const isArchiveOpen = archivedExpanded.has(project.path);
+
 					return (
 						<div key={project.path} className="sb-project">
 							<div className={`sb-project-row${project.path === activeProject ? " is-current" : ""}`}>
@@ -282,116 +482,57 @@ export function Sidebar(props: SidebarProps): ReactNode {
 								</div>
 							</div>
 							{!isCollapsed && (
-								<ul className="sb-threads">
-									{items.map(item => (
-										<li key={item.key} className="sb-thread-li">
+								<div className="sb-project-threads">
+									{pinnedItems.length > 0 && (
+										<div className="sb-pinned-section">
+											<div className="sb-subgroup-title">
+												<Pin size={10} />
+												<span>置顶</span>
+											</div>
+											<ul className="sb-threads">
+												{pinnedItems.map(item => renderThreadItem(item))}
+											</ul>
+										</div>
+									)}
+
+									<ul className="sb-threads">
+										{visibleActiveItems.map(item => renderThreadItem(item))}
+									</ul>
+
+									{activeItems.length > COLLAPSED_LIMIT && (
+										<button
+											type="button"
+											className="sb-more"
+											onClick={() => setExpanded(s => toggle(s, project.path))}
+										>
+											{showAll ? "收起" : `显示全部 ${activeItems.length} 个`}
+										</button>
+									)}
+
+									{archivedItems.length > 0 && (
+										<div className="sb-archive-group">
 											<button
 												type="button"
-												className={`sb-thread${item.isActive ? " is-active" : ""}`}
-												title={`${item.title} · ${relativeTime(item.updatedAt)} (可拖拽到输入框引入)`}
-												draggable={editingKey !== item.key}
-												onDragStart={e => {
-													if (editingKey === item.key) {
-														e.preventDefault();
-														return;
-													}
-													const payload = {
-														type: "session",
-														title: item.title,
-														file: item.session?.file,
-														threadKey: item.thread?.key ?? (item.session ? undefined : item.key),
-														cwd: project.path,
-													};
-													e.dataTransfer.setData("application/x-omp-session", JSON.stringify(payload));
-													e.dataTransfer.setData("text/plain", `[对话记录: ${item.title}]`);
-													e.dataTransfer.effectAllowed = "copyLink";
-												}}
-												onClick={() => {
-													if (editingKey === item.key) return;
-													if (item.session) props.onOpenSession(item.session);
-													else if (item.thread) props.onSelectThread(item.thread.key);
-												}}
-												onDoubleClick={e => startRenaming(item, e)}
-												onContextMenu={e => {
-													e.preventDefault();
-													e.stopPropagation();
-													setContextMenu({
-														x: e.clientX,
-														y: e.clientY,
-														item,
-														projectPath: project.path,
-													});
-												}}
+												className="sb-archive-toggle"
+												onClick={() => setArchivedExpanded(s => toggle(s, project.path))}
+												title="已归档会话"
 											>
-												<ThreadDot thread={item.thread} />
-												{editingKey === item.key ? (
-													<input
-														ref={renameInputRef}
-														className="sb-thread-rename-input"
-														value={renameValue}
-														onClick={e => e.stopPropagation()}
-														onChange={e => setRenameValue(e.target.value)}
-														onKeyDown={e => {
-															if (e.key === "Enter") {
-																e.preventDefault();
-																void commitRenaming(item);
-															} else if (e.key === "Escape") {
-																e.preventDefault();
-																cancelRenaming();
-															}
-														}}
-														onBlur={() => void commitRenaming(item)}
-													/>
-												) : (
-													<span className="sb-thread-title">{item.title}</span>
-												)}
-												<div className="sb-thread-actions" onClick={e => e.stopPropagation()}>
-													{editingKey !== item.key && (
-														<button
-															type="button"
-															className="sb-thread-rename"
-															title="重命名此对话"
-															onClick={e => startRenaming(item, e)}
-														>
-															<Pencil size={11} />
-														</button>
-													)}
-													{(item.session || item.thread) && editingKey !== item.key && (
-														<button
-															type="button"
-															className="sb-thread-delete"
-															title={item.session ? "删除此会话" : "关闭此新对话"}
-															onClick={e => {
-																e.stopPropagation();
-																if (item.session) {
-																	props.onDeleteSession(item.session.file);
-																} else if (item.thread && props.onCloseThread) {
-																	props.onCloseThread(item.thread.key);
-																}
-															}}
-														>
-															<Trash2 size={12} />
-														</button>
-													)}
-												</div>
+												<ChevronRight size={12} className={`sb-chev${isArchiveOpen ? " is-open" : ""}`} />
+												<Archive size={12} />
+												<span>已归档 ({archivedItems.length})</span>
 											</button>
-										</li>
-									))}
-									{allItems.length > COLLAPSED_LIMIT && (
-										<li>
-											<button
-												type="button"
-												className="sb-more"
-												onClick={() => setExpanded(s => toggle(s, project.path))}
-											>
-												{showAll ? "收起" : `显示全部 ${allItems.length} 个`}
-											</button>
-										</li>
+											{isArchiveOpen && (
+												<ul className="sb-threads sb-threads-archived">
+													{archivedItems.map(item => renderThreadItem(item, true))}
+												</ul>
+											)}
+										</div>
 									)}
-									{allItems.length === 0 && (
-										<li className="sb-thread-empty">暂无对话</li>
+
+									{pinnedItems.length === 0 && activeItems.length === 0 && archivedItems.length === 0 && (
+										<div className="sb-thread-empty">暂无对话</div>
 									)}
-								</ul>
+								</div>
 							)}
 						</div>
 					);
@@ -422,11 +563,65 @@ export function Sidebar(props: SidebarProps): ReactNode {
 					<div
 						className="sb-context-menu"
 						style={{
-							top: Math.min(contextMenu.y, window.innerHeight - 140),
+							top: Math.min(contextMenu.y, window.innerHeight - 200),
 							left: Math.min(contextMenu.x, window.innerWidth - 180),
 						}}
 						onClick={e => e.stopPropagation()}
 					>
+						{pinnedKeys.has(contextMenu.item.key) ? (
+							<button
+								type="button"
+								className="sb-context-item"
+								onClick={() => {
+									togglePin(contextMenu.item.key);
+									setContextMenu(null);
+								}}
+							>
+								<PinOff size={13} />
+								<span>取消置顶</span>
+							</button>
+						) : (
+							<button
+								type="button"
+								className="sb-context-item"
+								onClick={() => {
+									togglePin(contextMenu.item.key);
+									setContextMenu(null);
+								}}
+							>
+								<Pin size={13} />
+								<span>置顶会话</span>
+							</button>
+						)}
+
+						{archivedKeys.has(contextMenu.item.key) ? (
+							<button
+								type="button"
+								className="sb-context-item"
+								onClick={() => {
+									toggleArchive(contextMenu.item.key);
+									setContextMenu(null);
+								}}
+							>
+								<ArchiveRestore size={13} />
+								<span>取消归档</span>
+							</button>
+						) : (
+							<button
+								type="button"
+								className="sb-context-item"
+								onClick={() => {
+									toggleArchive(contextMenu.item.key);
+									setContextMenu(null);
+								}}
+							>
+								<Archive size={13} />
+								<span>归档会话</span>
+							</button>
+						)}
+
+						<div className="sb-context-sep" />
+
 						<button
 							type="button"
 							className="sb-context-item"

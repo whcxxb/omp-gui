@@ -2614,6 +2614,7 @@
 }
 
 .sb-thread-rename,
+.sb-thread-pin,
 .sb-thread-delete {
 	opacity: 0;
 	display: flex;
@@ -2631,8 +2632,62 @@
 }
 
 .sb-thread:hover .sb-thread-rename,
-.sb-thread:hover .sb-thread-delete {
+.sb-thread:hover .sb-thread-pin,
+.sb-thread:hover .sb-thread-delete,
+.sb-thread-pin.is-pinned {
 	opacity: 1;
+}
+
+.sb-thread-pin.is-pinned {
+	color: var(--accent);
+}
+
+.sb-thread-pin:hover {
+	color: var(--fg);
+	background: var(--bg-hover);
+}
+
+.sb-subgroup-title {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	padding: 6px 8px 2px 34px;
+	font-size: 11px;
+	font-weight: 500;
+	color: var(--fg-faint);
+	user-select: none;
+}
+
+.sb-archive-group {
+	margin-top: 4px;
+	padding-top: 2px;
+	border-top: 1px dashed var(--border-subtle);
+}
+
+.sb-archive-toggle {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	width: 100%;
+	height: 26px;
+	padding: 0 6px 0 34px;
+	border: 0;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: var(--fg-faint);
+	font-size: 12px;
+	cursor: pointer;
+	text-align: left;
+	transition: color 100ms ease, background-color 100ms ease;
+}
+
+.sb-archive-toggle:hover {
+	color: var(--fg);
+	background: var(--bg-hover);
+}
+
+.sb-threads-archived {
+	opacity: 0.85;
 }
 
 .sb-thread-rename:hover {
