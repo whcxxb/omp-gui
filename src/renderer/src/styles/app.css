@@ -1172,6 +1172,8 @@
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
+	gap: 8px;
+	min-width: 0;
 	height: 32px;
 	padding: 0 8px 0 10px;
 	background: var(--bg-raised);
@@ -1179,12 +1181,18 @@
 }
 
 .diff-title {
+	flex: 1;
+	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 
 .diff-filename {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 	font-family: var(--font-mono);
 	font-size: 11px;
 	font-weight: 600;
@@ -1192,12 +1200,15 @@
 }
 
 .diff-actions {
+	flex-shrink: 0;
 	display: flex;
 	align-items: center;
 	gap: 4px;
 }
 
 .diff-btn {
+	flex-shrink: 0;
+	white-space: nowrap;
 	display: inline-flex;
 	align-items: center;
 	gap: 4px;
@@ -1981,6 +1992,143 @@
 	font-size: 12px;
 }
 
+/* ---- Todo HUD ---- */
+.todo-hud {
+	margin-bottom: 8px;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius-lg);
+	background: var(--bg-raised);
+	font-family: var(--font-mono);
+	font-size: 12px;
+	line-height: 1.5;
+	overflow: hidden;
+	transition: all 150ms ease;
+}
+
+.todo-hud-head {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	width: 100%;
+	padding: 6px 12px;
+	border: none;
+	background: transparent;
+	color: var(--fg);
+	font-family: inherit;
+	font-size: 12px;
+	cursor: pointer;
+	text-align: left;
+}
+
+.todo-hud-head:hover {
+	background: var(--bg-hover);
+}
+
+.todo-hud-status-glyph {
+	color: var(--ok);
+	font-size: 13px;
+	line-height: 1;
+}
+
+.todo-hud-title {
+	font-weight: 600;
+	color: var(--ok);
+}
+
+.todo-hud-count {
+	color: var(--fg-muted);
+	font-size: 11px;
+}
+
+.todo-hud-rule {
+	flex: 1;
+	height: 1px;
+	margin: 0 8px;
+	background: var(--border);
+}
+
+.todo-hud-toggle {
+	color: var(--fg-faint);
+	display: flex;
+	align-items: center;
+}
+
+.todo-hud-tree {
+	padding: 0 12px 8px 14px;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.todo-hud-phase {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.todo-hud-phase-header {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	color: var(--fg-muted);
+	font-weight: 500;
+}
+
+.todo-hud-phase-tasks.is-nested {
+	padding-left: 14px;
+}
+
+.todo-hud-item {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	color: var(--fg);
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.todo-hud-branch {
+	color: var(--fg-faint);
+	user-select: none;
+}
+
+.todo-hud-item-icon {
+	user-select: none;
+	width: 14px;
+	text-align: center;
+}
+
+.todo-hud-item.is-completed {
+	color: var(--fg-faint);
+}
+
+.todo-hud-item.is-completed .todo-hud-item-icon {
+	color: var(--ok);
+}
+
+.todo-hud-item.is-completed .todo-hud-item-text {
+	text-decoration: line-through;
+	opacity: 0.75;
+}
+
+.todo-hud-item.is-in_progress {
+	color: var(--accent);
+	font-weight: 500;
+}
+
+.todo-hud-item.is-in_progress .todo-hud-item-icon {
+	color: var(--accent);
+}
+
+.todo-hud-item.is-abandoned {
+	color: var(--fg-faint);
+	text-decoration: line-through;
+}
+
+.todo-hud-item.is-pending {
+	color: var(--fg-muted);
+}
+
 .cp {
 	position: relative;
 	display: flex;
@@ -2495,6 +2643,61 @@
 .sb-thread-delete:hover {
 	color: var(--err);
 	background: var(--bg-hover);
+}
+
+/* ---- Sidebar Context Menu ---- */
+.sb-context-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: 1000;
+	background: transparent;
+}
+
+.sb-context-menu {
+	position: fixed;
+	min-width: 160px;
+	padding: 4px;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius);
+	background: var(--bg-overlay);
+	box-shadow: var(--shadow-overlay);
+	z-index: 1001;
+	animation: pop 100ms ease;
+}
+
+.sb-context-item {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	width: 100%;
+	padding: 6px 10px;
+	border: none;
+	border-radius: var(--radius-sm);
+	background: transparent;
+	color: var(--fg);
+	font-size: 12px;
+	cursor: pointer;
+	text-align: left;
+	transition: background var(--dur-fast), color var(--dur-fast);
+}
+
+.sb-context-item:hover {
+	background: var(--bg-hover);
+	color: var(--fg);
+}
+
+.sb-context-item.is-danger {
+	color: var(--err);
+}
+
+.sb-context-item.is-danger:hover {
+	background: oklch(0.68 0.18 25 / 15%);
+}
+
+.sb-context-sep {
+	height: 1px;
+	margin: 4px 0;
+	background: var(--border);
 }
 
 .mh-traffic-spacer {

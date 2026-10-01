@@ -1,12 +1,13 @@
-import { Download, FolderOpen, FolderPlus, FolderTree, GitBranch, PanelLeft, Pencil, RotateCw, Shield, ShieldAlert, ShieldCheck, Workflow, X } from "lucide-react";
+import { FolderOpen, FolderPlus, PanelLeft, PanelRight, Pencil, RotateCw, X } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import type { ProjectSummary, SessionSummary } from "@shared/ipc";
-import { APPROVAL_CONFIG, Composer } from "./components/Composer";
+import { Composer } from "./components/Composer";
 import { Sidebar, type SidebarThreadItem } from "./components/Sidebar";
 import { ThreadView } from "./components/ThreadView";
 import { RightPanel } from "./components/RightPanel";
 import { CommandPalette } from "./components/CommandPalette";
 import { SettingsModal } from "./components/SettingsModal";
+import { TodoHud } from "./components/TodoHud";
 import { UiRequestCard } from "./components/UiRequestCard";
 import { exportThreadToMarkdown } from "./lib/export";
 import { playSound } from "./lib/sound";
@@ -16,6 +17,7 @@ import {
 	closeThread,
 	createThread,
 	dismissNotice,
+	getThread,
 	handleRuntimeMessage,
 	openThread,
 	reconnect,
@@ -234,6 +236,19 @@ export function App(): ReactNode {
 				onRemoveProject={path => void removeProject(path)}
 				onDeleteSession={file => void deleteSession(file)}
 				onCloseThread={key => void handleCloseThread(key)}
+				onExportSession={(item, projectPath) => {
+					playSound("export");
+					if (item.thread) {
+						exportThreadToMarkdown(item.thread);
+					} else if (item.session) {
+						const key = openThread(projectPath, item.session.file);
+						setActiveKey(key);
+						setTimeout(() => {
+							const th = getThread(key);
+							if (th) exportThreadToMarkdown(th);
+						}, 250);
+					}
+				}}
 				onRenameSession={handleRenameSession}
 				onToggleSidebar={() => setSidebarOpen(v => !v)}
 				sidebarWidth={sidebarWidth}
@@ -381,67 +396,7 @@ function ThreadPane({
 						</>
 					)}
 				</div>
-				{(() => {
-					const mode = thread.approvalMode ?? "yolo";
-					const cfg = APPROVAL_CONFIG[mode] ?? APPROVAL_CONFIG.yolo;
-					const Icon = mode === "write" ? ShieldCheck : mode === "always-ask" ? ShieldAlert : Shield;
-					return (
-						<div className={`mh-mode is-${mode}`} title={`审批模式：${cfg.label}（${cfg.desc}）`}>
-							<Icon size={12} />
-							<span>{cfg.label}</span>
-						</div>
-					);
-				})()}
-				<div className="mh-panel-group">
-					<button
-						type="button"
-						className={`mh-panel-btn${thread.isRightPanelOpen && thread.rightPanelTab === "files" ? " is-active" : ""}`}
-						title={thread.isRightPanelOpen && thread.rightPanelTab === "files" ? "收起文件树" : "查看项目文件树"}
-						onClick={() => toggleRightPanel(thread.key, "files")}
-					>
-						<FolderTree size={13} />
-						<span>文件</span>
-					</button>
-
-					<button
-						type="button"
-						className={`mh-panel-btn${thread.isRightPanelOpen && thread.rightPanelTab === "git" ? " is-active" : ""}`}
-						title={thread.isRightPanelOpen && thread.rightPanelTab === "git" ? "收起 Git 状态" : "查看 Git 变更"}
-						onClick={() => toggleRightPanel(thread.key, "git")}
-					>
-						<GitBranch size={13} />
-						<span>Git</span>
-					</button>
-
-					<button
-						type="button"
-						className={`mh-panel-btn${thread.isRightPanelOpen && thread.rightPanelTab === "subagents" ? " is-active" : ""}`}
-						title={thread.isRightPanelOpen && thread.rightPanelTab === "subagents" ? "收起子任务看板" : "展开子任务看板"}
-						onClick={() => toggleRightPanel(thread.key, "subagents")}
-					>
-						<Workflow size={13} />
-						<span>子任务</span>
-						{thread.subagents && thread.subagents.length > 0 && (
-							<span className="mh-subagent-badge">
-								{thread.subagents.filter(s => s.status === "started" || s.status === "running").length || thread.subagents.length}
-							</span>
-						)}
-					</button>
-				</div>
-				{thread.entries.length > 0 && (
-					<button
-						type="button"
-						className="mh-export-btn"
-						title="导出为 Markdown"
-						onClick={() => {
-							playSound("export");
-							exportThreadToMarkdown(thread);
-						}}
-					>
-						<Download size={13} />
-						<span>导出</span>
-					</button>
-				)}
+				<div className="mh-spacer" style={{ flex: 1 }} />
 				<button
 					type="button"
 					className="mh-path"
@@ -450,6 +405,14 @@ function ThreadPane({
 				>
 					<FolderOpen size={13} />
 					<span>{shortPath(thread.cwd)}</span>
+				</button>
+				<button
+					type="button"
+					className={`mh-sidebar-toggle${thread.isRightPanelOpen ? " is-active" : ""}`}
+					title={thread.isRightPanelOpen ? "收起右侧栏" : "展开右侧栏"}
+					onClick={() => toggleRightPanel(thread.key)}
+				>
+					<PanelRight size={13} />
 				</button>
 			</header>
 
@@ -491,6 +454,7 @@ function ThreadPane({
 				{thread.uiRequests.map(request => (
 					<UiRequestCard key={request.id} threadKey={thread.key} request={request} />
 				))}
+				<TodoHud thread={thread} />
 				<Composer thread={thread} autoFocus />
 			</div>
 				</div>

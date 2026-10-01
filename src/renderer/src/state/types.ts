@@ -81,6 +81,18 @@ export interface SubagentSnapshot {
 	parentToolCallId?: string;
 	error?: string;
 }
+export type TodoStatus = "pending" | "in_progress" | "completed" | "abandoned";
+
+export interface TodoItem {
+	content: string;
+	status: TodoStatus;
+}
+
+export interface TodoPhase {
+	name: string;
+	tasks: TodoItem[];
+}
+
 export type RightPanelTab = "files" | "git" | "subagents";
 
 /** get_state 的子集 */
@@ -93,6 +105,7 @@ export interface SessionStateSnapshot {
 	sessionName?: string;
 	queuedMessageCount: number;
 	contextUsage?: ContextUsage;
+	todoPhases?: TodoPhase[];
 }
 
 export type UiRequest =
@@ -132,6 +145,7 @@ export interface Thread {
 	uiRequests: UiRequest[];
 	queuedPrompts: QueuedPrompt[];
 	notices: Notice[];
+	todoPhases: TodoPhase[];
 	createdAt: number;
 	updatedAt: number;
 }

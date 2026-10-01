@@ -1,4 +1,4 @@
-import { ChevronRight, Folder, FolderPlus, PanelLeft, Pencil, Settings, SquarePen, Trash2, X } from "lucide-react";
+import { ChevronRight, Download, Folder, FolderPlus, PanelLeft, Pencil, Settings, SquarePen, Trash2, X } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectSummary, SessionSummary } from "@shared/ipc";
 import { relativeTime, shortPath } from "@/lib/time";
@@ -15,7 +15,7 @@ export interface SidebarThreadItem {
 	isActive: boolean;
 }
 
-function getThreadLatestTime(thread: Thread): number {
+function getThreadLatestTime(thread: Thread, fallback = 0): number {
 	if (thread.working) return Date.now();
 	if (thread.entries.length > 0) {
 		const last = thread.entries[thread.entries.length - 1];
@@ -28,7 +28,7 @@ function getThreadLatestTime(thread: Thread): number {
 			if (!isNaN(ts)) return ts;
 		}
 	}
-	return thread.updatedAt ?? thread.createdAt ?? 0;
+	return fallback;
 }
 
 interface SidebarProps {
@@ -44,6 +44,7 @@ interface SidebarProps {
 	onAddProject(): void;
 	onRemoveProject(path: string): void;
 	onDeleteSession(file: string): void;
+	onExportSession?(item: SidebarThreadItem, projectPath: string): void;
 	onRenameSession?(item: SidebarThreadItem, newTitle: string): Promise<void> | void;
 	onCloseThread?(key: string): void;
 	onToggleSidebar(): void;
@@ -55,6 +56,7 @@ interface SidebarProps {
 
 export function Sidebar(props: SidebarProps): ReactNode {
 	const { projects, threads, activeKey, activeProject, ompVersion, sidebarWidth, onWidthChange, onResetWidth, onOpenSettings } = props;
+	const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: SidebarThreadItem; projectPath: string } | null>(null);
 	const [isResizing, setIsResizing] = useState(false);
 
 	const startResize = (e: React.MouseEvent): void => {
@@ -149,12 +151,12 @@ export function Sidebar(props: SidebarProps): ReactNode {
 				const open = threadByFile.get(session.file);
 				if (open) seenKeys.add(open.key);
 
-				const threadTime = open ? getThreadLatestTime(open) : 0;
+				const threadTime = open ? getThreadLatestTime(open, session.updatedAt) : session.updatedAt;
 				const updatedAt = Math.max(session.updatedAt, threadTime);
 				const title = open?.state?.sessionName || session.title || "未命名对话";
 
 				items.push({
-					key: open?.key ?? session.file,
+					key: session.file,
 					title,
 					updatedAt,
 					thread: open,
@@ -171,7 +173,7 @@ export function Sidebar(props: SidebarProps): ReactNode {
 				if (file && seenFiles.has(file)) continue;
 
 				seenKeys.add(t.key);
-				const threadTime = getThreadLatestTime(t);
+				const threadTime = getThreadLatestTime(t, t.updatedAt ?? t.createdAt ?? 0);
 				const updatedAt = threadTime > 0 ? threadTime : (t.updatedAt ?? t.createdAt ?? 0);
 				const title = t.state?.sessionName || "新对话";
 
@@ -184,8 +186,11 @@ export function Sidebar(props: SidebarProps): ReactNode {
 				});
 			}
 
-			// 按最新的修改/活动时间从新到旧排序
-			items.sort((a, b) => b.updatedAt - a.updatedAt);
+			// 按最新的修改/活动时间从新到旧排序，时间相同时按 key 稳定排序
+			items.sort((a, b) => {
+				if (b.updatedAt !== a.updatedAt) return b.updatedAt - a.updatedAt;
+				return a.key.localeCompare(b.key);
+			});
 			map.set(project.path, items);
 		}
 
@@ -307,6 +312,16 @@ export function Sidebar(props: SidebarProps): ReactNode {
 													else if (item.thread) props.onSelectThread(item.thread.key);
 												}}
 												onDoubleClick={e => startRenaming(item, e)}
+												onContextMenu={e => {
+													e.preventDefault();
+													e.stopPropagation();
+													setContextMenu({
+														x: e.clientX,
+														y: e.clientY,
+														item,
+														projectPath: project.path,
+													});
+												}}
 											>
 												<ThreadDot thread={item.thread} />
 												{editingKey === item.key ? (
@@ -394,6 +409,66 @@ export function Sidebar(props: SidebarProps): ReactNode {
 					<span className="sb-version">{ompVersion ?? "设置"}</span>
 				</button>
 			</footer>
+
+			{contextMenu && (
+				<div
+					className="sb-context-overlay"
+					onClick={() => setContextMenu(null)}
+					onContextMenu={e => {
+						e.preventDefault();
+						setContextMenu(null);
+					}}
+				>
+					<div
+						className="sb-context-menu"
+						style={{
+							top: Math.min(contextMenu.y, window.innerHeight - 140),
+							left: Math.min(contextMenu.x, window.innerWidth - 180),
+						}}
+						onClick={e => e.stopPropagation()}
+					>
+						<button
+							type="button"
+							className="sb-context-item"
+							onClick={() => {
+								props.onExportSession?.(contextMenu.item, contextMenu.projectPath);
+								setContextMenu(null);
+							}}
+						>
+							<Download size={13} />
+							<span>导出为 Markdown</span>
+						</button>
+						<button
+							type="button"
+							className="sb-context-item"
+							onClick={e => {
+								startRenaming(contextMenu.item, e);
+								setContextMenu(null);
+							}}
+						>
+							<Pencil size={13} />
+							<span>重命名</span>
+						</button>
+						<div className="sb-context-sep" />
+						<button
+							type="button"
+							className="sb-context-item is-danger"
+							onClick={() => {
+								const { item } = contextMenu;
+								if (item.session) {
+									props.onDeleteSession(item.session.file);
+								} else if (item.thread && props.onCloseThread) {
+									props.onCloseThread(item.thread.key);
+								}
+								setContextMenu(null);
+							}}
+						>
+							<Trash2 size={13} />
+							<span>删除此对话</span>
+						</button>
+					</div>
+				</div>
+			)}
 		</aside>
 	);
 }

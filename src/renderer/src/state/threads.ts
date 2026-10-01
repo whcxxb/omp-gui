@@ -13,6 +13,7 @@ import type {
 	SubagentProgress,
 	SubagentSnapshot,
 	Thread,
+	TodoPhase,
 	UiRequest,
 } from "./types";
 import { playSound } from "@/lib/sound";
@@ -105,7 +106,11 @@ async function refreshState(key: string): Promise<void> {
 	if (!thread?.runtimeId) return;
 	try {
 		const state = await window.omp.request<SessionStateSnapshot>(thread.runtimeId, { type: "get_state" });
-		update(key, () => ({ state, sessionFile: state.sessionFile ?? thread.sessionFile }));
+		update(key, t => ({
+			state,
+			sessionFile: state.sessionFile ?? t.sessionFile,
+			todoPhases: state.todoPhases ?? t.todoPhases,
+		}));
 	} catch {
 		// 进程退出时忽略
 	}
@@ -117,7 +122,24 @@ async function loadEntries(key: string): Promise<void> {
 	const data = await window.omp.request<{ entries: SessionEntry[]; leafId: string | null }>(thread.runtimeId, {
 		type: "get_entries",
 	});
-	update(key, () => ({ entries: currentBranch(data.entries, data.leafId) }));
+	const branch = currentBranch(data.entries, data.leafId);
+	let latestPhases: TodoPhase[] | undefined;
+	for (let i = branch.length - 1; i >= 0; i--) {
+		const entry = branch[i];
+		if (entry.type === "message" && entry.message.role === "toolResult" && "toolName" in entry.message && entry.message.toolName === "todo") {
+			if ("details" in entry.message && entry.message.details && typeof entry.message.details === "object" && "phases" in entry.message.details) {
+				const phases = entry.message.details.phases;
+				if (Array.isArray(phases) && phases.length > 0) {
+					latestPhases = phases as TodoPhase[];
+					break;
+				}
+			}
+		}
+	}
+	update(key, t => ({
+		entries: branch,
+		todoPhases: latestPhases ?? t.todoPhases,
+	}));
 }
 async function initSubagents(key: string): Promise<void> {
 	const thread = getThread(key);
@@ -185,6 +207,7 @@ function blankThread(cwd: string, sessionFile?: string, approvalMode: ApprovalMo
 		uiRequests: [],
 		queuedPrompts: [],
 		notices: [],
+		todoPhases: [],
 		createdAt: now,
 		updatedAt: now,
 	};
@@ -424,8 +447,17 @@ function applyFrame(thread: Thread, frame: Frame): Partial<Thread> | null {
 		case "message_end": {
 			const message = frame.message as WireMessage;
 			const entries = [...thread.entries, messageEntry(message, thread.entries.at(-1))];
-			if (message.role === "assistant") return { entries, stream: null, streamDone: false, updatedAt: Date.now() };
-			return { entries, updatedAt: Date.now() };
+			let nextTodoPhases = thread.todoPhases;
+			if (message.role === "toolResult" && "toolName" in message && message.toolName === "todo") {
+				if ("details" in message && message.details && typeof message.details === "object" && "phases" in message.details) {
+					const phases = message.details.phases;
+					if (Array.isArray(phases)) {
+						nextTodoPhases = phases as TodoPhase[];
+					}
+				}
+			}
+			if (message.role === "assistant") return { entries, stream: null, streamDone: false, todoPhases: nextTodoPhases, updatedAt: Date.now() };
+			return { entries, todoPhases: nextTodoPhases, updatedAt: Date.now() };
 		}
 		case "tool_execution_start": {
 			const tool: ActiveTool = {
@@ -456,6 +488,9 @@ function applyFrame(thread: Thread, frame: Frame): Partial<Thread> | null {
 			next.delete(String(frame.toolCallId));
 			if (typeof window !== "undefined") {
 				window.dispatchEvent(new CustomEvent("omp:workspace-changed", { detail: { cwd: thread.cwd } }));
+			}
+			if (frame.toolName === "todo") {
+				void refreshState(thread.key);
 			}
 			return { activeTools: next };
 		}
