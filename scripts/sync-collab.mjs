@@ -74,11 +74,16 @@ function walk(dir) {
 		const full = join(dir, entry);
 		if (statSync(full).isDirectory()) walk(full);
 		else if (/\.(ts|tsx)$/.test(entry)) {
-			const src = readFileSync(full, "utf8");
-			const out = src
+			let src = readFileSync(full, "utf8");
+			let out = src
 				.replaceAll('"@oh-my-pi/pi-wire"', `"${rel(full, "wire/index")}"`)
 				.replaceAll('"@oh-my-pi/pi-utils/marked"', '"marked"')
 				.replaceAll('"@oh-my-pi/pi-utils/math-delimiters"', `"${rel(full, "math-delimiters")}"`);
+			if (full.endsWith("math.ts")) {
+				out = out
+					.replace("startFrom: mathStartIndex,", "start(source) {\n				return mathStartIndex(source);\n			},")
+					.replace("mathSpanInContext(this, source)", "mathSpanInContext(this as any, source)");
+			}
 			if (out !== src) writeFileSync(full, out);
 		}
 	}

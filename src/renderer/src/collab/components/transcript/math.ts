@@ -1,5 +1,5 @@
 import type { MarkedExtension, Tokens } from "marked";
-import { type MathSpan, mathBlockAt, mathSpanAt, mathStartIndex } from "../../math-delimiters";
+import { type MathSpan, mathBlockAt, mathSpanInContext, mathStartIndex } from "../../math-delimiters";
 import { renderToString } from "katex";
 import { escapeHtml } from "../../lib/format";
 
@@ -44,9 +44,9 @@ function renderMath(token: Tokens.Generic): string | false {
  *
  * Two limits follow from that shared behavior, both matching the TUI: a rejected
  * opener hides later spans on its line ("it costs $5, and the growth is $x^2$"
- * typesets nothing, since marked drops a `start` hint of 0), and a display block
- * whose body contains a blank line must be preceded by one — attached blocks are
- * tokenized by the inline rule, which a blank line ends.
+ * typesets nothing, since marked drops a start hint at its own position), and a
+ * display block whose body contains a blank line must be preceded by one —
+ * attached blocks are tokenized by the inline rule, which a blank line ends.
  */
 export const mathExtension: MarkedExtension = {
 	extensions: [
@@ -65,9 +65,11 @@ export const mathExtension: MarkedExtension = {
 		{
 			name: "math",
 			level: "inline",
-			start: mathStartIndex,
+			start(source) {
+				return mathStartIndex(source);
+			},
 			tokenizer(source) {
-				const span = mathSpanAt(source, 0);
+				const span = mathSpanInContext(this as any, source);
 				if (!span || !typesettable(span)) return undefined;
 				return { type: "math", raw: source.slice(0, span.end), text: span.body, display: span.display };
 			},
