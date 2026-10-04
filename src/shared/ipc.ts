@@ -3,7 +3,7 @@
 export type ApprovalMode = "yolo" | "write" | "always-ask";
 
 /** 界面配色主题；明暗仍跟随系统 */
-export type Theme = "default" | "claude";
+export type Theme = "default" | "claude" | "tokyo-night" | "pure-black";
 
 export interface SessionSummary {
 	/** 会话文件绝对路径 */
@@ -58,13 +58,40 @@ export interface GitStatusResult {
 	untrackedFiles: GitChangedFile[];
 	totalChanges: number;
 }
-
 export interface GitDiffOptions {
 	cwd: string;
 	file: string;
 	staged?: boolean;
 }
 
+export interface GitCommitSummary {
+	hash: string;
+	shortHash: string;
+	author: string;
+	relativeDate: string;
+	timestamp: number;
+	subject: string;
+}
+
+export interface GitCommitDetail extends GitCommitSummary {
+	body: string;
+	files: Array<{
+		path: string;
+		status: GitFileStatus;
+	}>;
+}
+
+export interface TerminalOutputEvent {
+	id: string;
+	data: string;
+	isStderr?: boolean;
+}
+
+export interface TerminalExitEvent {
+	id: string;
+	code: number | null;
+	signal: string | null;
+}
 export interface SkillItem {
 	name: string;
 	description: string;
@@ -136,6 +163,15 @@ export interface OmpApi {
 	searchRegistrySkills(query: string): Promise<RegistrySkillHit[]>;
 	installRegistrySkill(name: string, isGlobal?: boolean, cwd?: string): Promise<{ ok: boolean; message: string }>;
 	generateTitle(prompt: string): Promise<string | null>;
+	searchProjectFiles(cwd: string, query?: string): Promise<string[]>;
+	forkSession(options: { cwd: string; sourceSessionFile: string; targetEntryId: string }): Promise<string>;
+	gitLog(cwd: string, limit?: number): Promise<GitCommitSummary[]>;
+	gitCommitDetail(cwd: string, hash: string): Promise<GitCommitDetail | null>;
+	gitCommitDiff(cwd: string, hash: string, file?: string): Promise<string>;
+	runTerminalCommand(cwd: string, command: string): Promise<string>;
+	killTerminalCommand(id: string): Promise<boolean>;
+	onTerminalOutput(listener: (event: TerminalOutputEvent) => void): () => void;
+	onTerminalExit(listener: (event: TerminalExitEvent) => void): () => void;
 	onRuntime(listener: (runtimeId: string, message: RuntimeMessage) => void): () => void;
 	onProjectsChanged(listener: () => void): () => void;
 }

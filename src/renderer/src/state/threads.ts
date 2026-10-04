@@ -5,6 +5,7 @@ import type { ActiveTool } from "@/collab/lib/client";
 import type { AssistantMessage, ImageContent, SessionEntry, WireMessage } from "@/collab/wire/index";
 import type {
 	ApprovalMode,
+	ExecutionMode,
 	Notice,
 	QueuedPrompt,
 	QueuedPromptAttachment,
@@ -192,6 +193,7 @@ function blankThread(cwd: string, sessionFile?: string, approvalMode: ApprovalMo
 		cwd,
 		sessionFile,
 		approvalMode,
+		executionMode: "edit",
 		status: "starting",
 		entries: [],
 		stream: null,
@@ -234,11 +236,42 @@ export function openThread(cwd: string, sessionFile: string): string {
 	void attach(thread.key);
 	return thread.key;
 }
-
 export function reconnect(key: string): void {
 	void attach(key);
 }
 
+export async function forkThread(key: string, targetEntryId: string): Promise<string | null> {
+	const source = getThread(key);
+	if (!source) return null;
+
+	let sourceFile = source.sessionFile;
+	if (!sourceFile && source.state?.sessionFile) {
+		sourceFile = source.state.sessionFile;
+	}
+	if (!sourceFile) {
+		await refreshState(key);
+		const refreshed = getThread(key);
+		sourceFile = refreshed?.sessionFile ?? refreshed?.state?.sessionFile;
+	}
+	if (!sourceFile) return null;
+
+	try {
+		const newFile = await window.omp.forkSession({
+			cwd: source.cwd,
+			sourceSessionFile: sourceFile,
+			targetEntryId,
+		});
+		playSound("switch");
+		const newThreadKey = openThread(source.cwd, newFile);
+		if (typeof window !== "undefined") {
+			window.dispatchEvent(new CustomEvent("omp:select-thread", { detail: { key: newThreadKey } }));
+		}
+		return newThreadKey;
+	} catch (err) {
+		console.error("Fork thread failed:", err);
+		return null;
+	}
+}
 export async function closeThread(key: string): Promise<void> {
 	const thread = getThread(key);
 	if (!thread) return;
@@ -257,12 +290,18 @@ export async function sendPrompt(key: string, message: string, images?: ImageCon
 		!thread.state?.sessionName &&
 		!thread.entries.some(e => e.type === "message" && e.message.role === "user");
 
-	const command: Frame = { type: "prompt", message };
+	let actualMessage = message;
+	if (thread.executionMode === "plan") {
+		actualMessage = `[计划模式 / Plan Mode]\n你当前处于只读架构规划模式。请对当前需求进行深入分析、定位涉及的源码与模块，制定详尽的实施步骤方案与任务清单。在此模式下请务必保持只读，禁止调用 edit/write 直接修改或创建文件，待用户确认方案后再切回编辑模式执行。\n\n${message}`;
+	} else if (thread.executionMode === "ask") {
+		actualMessage = `[问答模式 / Ask Mode]\n你当前处于代码咨询与答疑模式。请针对当前问题进行专业解答或原理分析，无需进行多文件编写修改。\n\n${message}`;
+	}
+
+	const command: Frame = { type: "prompt", message: actualMessage };
 	if (images && images.length > 0) command.images = images;
 	if (thread.working) command.streamingBehavior = "followUp";
 	try {
 		await window.omp.request(thread.runtimeId, command);
-
 		// 第一次发送消息后自动使用模型进行简短总结，并持久化为会话标题
 		if (isFirstUserPrompt && message.trim()) {
 			void (async () => {
@@ -660,6 +699,10 @@ export function setModel(key: string, model: { provider: string; id: string }): 
 export function setThinkingLevel(key: string, level: string): Promise<unknown> {
 	return runCommand(key, { type: "set_thinking_level", level });
 }
+export function setExecutionMode(key: string, mode: ExecutionMode): void {
+	update(key, () => ({ executionMode: mode, updatedAt: Date.now() }));
+}
+
 export async function setApprovalMode(key: string, mode: ApprovalMode): Promise<void> {
 	const thread = getThread(key);
 	if (!thread || thread.approvalMode === mode) return;

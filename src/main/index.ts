@@ -5,9 +5,10 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import type { ApprovalMode, GitDiffOptions, OpenSessionOptions, Theme } from "@shared/ipc";
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from "electron";
-import { gitDiff, gitStatus, listDir, openInEditor } from "./git-fs";
+import { gitCommitDetail, gitCommitDiff, gitDiff, gitLog, gitStatus, listDir, openInEditor, searchProjectFiles } from "./git-fs";
+import { cleanupTerminalProcesses, registerTerminalIpc } from "./terminal";
 import { detectDefaultApprovalMode, loginEnv, ompVersion, resolveOmp, RuntimePool } from "./runtimes";
-import { deleteSessionFile, groupProjects, readSessionExcerpt, renameSessionFile, scanSessions, sessionsDir } from "./sessions";
+import { deleteSessionFile, forkSession, groupProjects, readSessionExcerpt, renameSessionFile, scanSessions, sessionsDir } from "./sessions";
 import { readStore, writeStore } from "./store";
 
 let win: BrowserWindow | null = null;
@@ -20,6 +21,8 @@ const pool = new RuntimePool((runtimeId, message) => {
 const WINDOW_BACKGROUND: Record<Theme, { dark: string; light: string }> = {
 	default: { dark: "#121314", light: "#fdfdfd" },
 	claude: { dark: "#252523", light: "#faf9f5" },
+	"tokyo-night": { dark: "#1a1b26", light: "#f0f1f6" },
+	"pure-black": { dark: "#000000", light: "#ffffff" },
 };
 
 function windowBackground(): string {
@@ -177,6 +180,11 @@ function registerIpc(): void {
 	ipcMain.handle("omp:git-status", (_e, cwd: string) => gitStatus(cwd));
 	ipcMain.handle("omp:git-diff", (_e, options: GitDiffOptions) => gitDiff(options));
 	ipcMain.handle("omp:open-in-editor", (_e, cwd: string, file: string) => openInEditor(cwd, file));
+	ipcMain.handle("omp:search-project-files", (_e, cwd: string, query?: string) => searchProjectFiles(cwd, query));
+	ipcMain.handle("omp:fork-session", (_e, options) => forkSession(options));
+	ipcMain.handle("omp:git-log", (_e, cwd: string, limit?: number) => gitLog(cwd, limit));
+	ipcMain.handle("omp:git-commit-detail", (_e, cwd: string, hash: string) => gitCommitDetail(cwd, hash));
+	ipcMain.handle("omp:git-commit-diff", (_e, cwd: string, hash: string, file?: string) => gitCommitDiff(cwd, hash, file));
 	ipcMain.handle("omp:list-skills", (_e, cwd?: string) => listLocalSkills(cwd));
 	ipcMain.handle("omp:create-skill", (_e, options) => createLocalSkill(options));
 	ipcMain.handle("omp:delete-skill", (_e, path: string) => deleteLocalSkill(path));
@@ -206,6 +214,7 @@ function registerIpc(): void {
 			return null;
 		}
 	});
+	registerTerminalIpc(() => win);
 }
 
 app.whenReady().then(() => {
@@ -226,4 +235,7 @@ app.on("window-all-closed", () => {
 	if (process.platform !== "darwin") app.quit();
 });
 
-app.on("before-quit", () => pool.disposeAll());
+app.on("before-quit", () => {
+	cleanupTerminalProcesses();
+	pool.disposeAll();
+});

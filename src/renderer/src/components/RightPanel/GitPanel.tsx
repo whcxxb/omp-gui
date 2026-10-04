@@ -1,16 +1,21 @@
 import {
+	ArrowLeft,
 	CheckCircle,
 	ChevronDown,
 	ChevronRight,
+	Clock,
 	ExternalLink,
 	Eye,
 	FileCode,
 	FolderOpen,
 	GitBranch,
+	GitCommit,
+	History,
 	RefreshCw,
+	User,
 } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
-import type { GitChangedFile, GitStatusResult } from "@shared/ipc";
+import type { GitChangedFile, GitCommitDetail, GitCommitSummary, GitStatusResult } from "@shared/ipc";
 import { DiffView } from "./DiffView";
 
 interface GitPanelProps {
@@ -21,15 +26,24 @@ interface GitPanelProps {
 export function GitPanel({ cwd, onInsertText }: GitPanelProps): ReactNode {
 	const [status, setStatus] = useState<GitStatusResult | null>(null);
 	const [loading, setLoading] = useState(false);
+	const [activeSubTab, setActiveSubTab] = useState<"changes" | "commits">("changes");
+
+	// 变更 Tab 状态
 	const [selectedFile, setSelectedFile] = useState<{ file: string; staged: boolean } | null>(null);
 	const [diffContent, setDiffContent] = useState<string | null>(null);
 	const [diffLoading, setDiffLoading] = useState(false);
-
 	const [stagedOpen, setStagedOpen] = useState(true);
 	const [unstagedOpen, setUnstagedOpen] = useState(true);
 	const [untrackedOpen, setUntrackedOpen] = useState(true);
 
-	const refresh = useCallback(async () => {
+	// 提交历史 Tab 状态
+	const [commits, setCommits] = useState<GitCommitSummary[]>([]);
+	const [commitsLoading, setCommitsLoading] = useState(false);
+	const [selectedCommit, setSelectedCommit] = useState<GitCommitDetail | null>(null);
+	const [commitFileDiff, setCommitFileDiff] = useState<{ file: string; diff: string } | null>(null);
+	const [commitDiffLoading, setCommitDiffLoading] = useState(false);
+
+	const refreshStatus = useCallback(async () => {
 		setLoading(true);
 		try {
 			const res = await window.omp.gitStatus(cwd);
@@ -41,19 +55,37 @@ export function GitPanel({ cwd, onInsertText }: GitPanelProps): ReactNode {
 		}
 	}, [cwd]);
 
+	const refreshCommits = useCallback(async () => {
+		setCommitsLoading(true);
+		try {
+			const list = await window.omp.gitLog(cwd, 40);
+			setCommits(list);
+		} catch {
+			setCommits([]);
+		} finally {
+			setCommitsLoading(false);
+		}
+	}, [cwd]);
+
 	useEffect(() => {
-		void refresh();
+		void refreshStatus();
+		if (activeSubTab === "commits") {
+			void refreshCommits();
+		}
 		let timer: NodeJS.Timeout | undefined;
 		const onWorkspaceChange = (): void => {
 			clearTimeout(timer);
-			timer = setTimeout(() => void refresh(), 300);
+			timer = setTimeout(() => {
+				void refreshStatus();
+				if (activeSubTab === "commits") void refreshCommits();
+			}, 300);
 		};
 		window.addEventListener("omp:workspace-changed", onWorkspaceChange);
 		return () => {
 			clearTimeout(timer);
 			window.removeEventListener("omp:workspace-changed", onWorkspaceChange);
 		};
-	}, [refresh]);
+	}, [refreshStatus, refreshCommits, activeSubTab]);
 
 	const handleSelectFile = async (file: string, staged: boolean): Promise<void> => {
 		if (selectedFile?.file === file && selectedFile?.staged === staged) {
@@ -70,6 +102,35 @@ export function GitPanel({ cwd, onInsertText }: GitPanelProps): ReactNode {
 			setDiffContent("无法加载代码对比");
 		} finally {
 			setDiffLoading(false);
+		}
+	};
+
+	const handleSelectCommit = async (hash: string): Promise<void> => {
+		setCommitFileDiff(null);
+		setCommitsLoading(true);
+		try {
+			const detail = await window.omp.gitCommitDetail(cwd, hash);
+			setSelectedCommit(detail);
+		} catch {
+			setSelectedCommit(null);
+		} finally {
+			setCommitsLoading(false);
+		}
+	};
+
+	const handleSelectCommitFile = async (hash: string, file: string): Promise<void> => {
+		if (commitFileDiff?.file === file) {
+			setCommitFileDiff(null);
+			return;
+		}
+		setCommitDiffLoading(true);
+		try {
+			const diff = await window.omp.gitCommitDiff(cwd, hash, file);
+			setCommitFileDiff({ file, diff });
+		} catch {
+			setCommitFileDiff({ file, diff: "无法获取该提交文件差异" });
+		} finally {
+			setCommitDiffLoading(false);
 		}
 	};
 
@@ -122,32 +183,50 @@ export function GitPanel({ cwd, onInsertText }: GitPanelProps): ReactNode {
 							const isSelected = selectedFile?.file === item.path && selectedFile?.staged === staged;
 							return (
 								<div
-									key={`${staged ? "s" : "u"}-${item.path}`}
+									key={item.path}
 									className={`git-file-row${isSelected ? " is-selected" : ""}`}
 									onClick={() => void handleSelectFile(item.path, staged)}
 								>
 									<span className={`git-status-badge is-${item.displayStatus}`} title={item.displayStatus}>
-										{item.displayStatus[0]?.toUpperCase() ?? "M"}
+										{item.displayStatus === "modified" && "M"}
+										{item.displayStatus === "added" && "A"}
+										{item.displayStatus === "deleted" && "D"}
+										{item.displayStatus === "renamed" && "R"}
+										{item.displayStatus === "copied" && "C"}
+										{item.displayStatus === "untracked" && "U"}
 									</span>
+
 									<span className="git-file-name" title={item.path}>
 										{item.path}
 									</span>
+
 									<div className="git-file-actions">
 										<button
 											type="button"
 											className="git-action-btn"
-											title="在编辑器中打开"
-											onClick={e => void handleOpenEditor(e, item.path)}
+											title="查看代码差异对比"
+											onClick={e => {
+												e.stopPropagation();
+												void handleSelectFile(item.path, staged);
+											}}
 										>
-											<ExternalLink size={11} />
+											<Eye size={12} />
 										</button>
 										<button
 											type="button"
 											className="git-action-btn"
-											title="在访达中显示"
+											title="在外部编辑器打开"
+											onClick={e => void handleOpenEditor(e, item.path)}
+										>
+											<ExternalLink size={12} />
+										</button>
+										<button
+											type="button"
+											className="git-action-btn"
+											title="在文件管理器中定位"
 											onClick={e => handleReveal(e, item.path)}
 										>
-											<FolderOpen size={11} />
+											<FolderOpen size={12} />
 										</button>
 									</div>
 								</div>
@@ -172,46 +251,186 @@ export function GitPanel({ cwd, onInsertText }: GitPanelProps): ReactNode {
 						</span>
 					)}
 				</div>
+
+				<div className="git-subtabs">
+					<button
+						type="button"
+						className={`git-subtab${activeSubTab === "changes" ? " is-active" : ""}`}
+						onClick={() => setActiveSubTab("changes")}
+					>
+						<span>变更</span>
+						{status.totalChanges > 0 && <span className="git-subtab-badge">{status.totalChanges}</span>}
+					</button>
+					<button
+						type="button"
+						className={`git-subtab${activeSubTab === "commits" ? " is-active" : ""}`}
+						onClick={() => {
+							setActiveSubTab("commits");
+							void refreshCommits();
+						}}
+					>
+						<History size={12} />
+						<span>历史</span>
+					</button>
+				</div>
+
 				<button
 					type="button"
-					className={`rp-icon-btn${loading ? " is-spinning" : ""}`}
-					title="刷新 Git 状态"
-					onClick={() => void refresh()}
+					className={`rp-icon-btn${loading || commitsLoading ? " is-spinning" : ""}`}
+					title="刷新"
+					onClick={() => {
+						void refreshStatus();
+						if (activeSubTab === "commits") void refreshCommits();
+					}}
 				>
 					<RefreshCw size={12} />
 				</button>
 			</div>
 
 			<div className="git-content">
-				{status.totalChanges === 0 ? (
-					<div className="rp-empty">
-						<CheckCircle size={28} className="rp-empty-icon is-clean" />
-						<div className="rp-empty-title">工作区已是最新状态</div>
-						<div className="rp-empty-desc">没有未提交的代码改动</div>
-					</div>
-				) : (
-					<div className="git-groups-scroll">
-						{renderGroup("暂存区变更 (Staged)", status.stagedFiles, stagedOpen, setStagedOpen, true)}
-						{renderGroup("更改 (Changes)", status.unstagedFiles, unstagedOpen, setUnstagedOpen, false)}
-						{renderGroup("未跟踪文件 (Untracked)", status.untrackedFiles, untrackedOpen, setUntrackedOpen, false)}
-					</div>
-				)}
+				{activeSubTab === "changes" ? (
+					<>
+						{status.totalChanges === 0 ? (
+							<div className="rp-empty">
+								<CheckCircle size={28} className="rp-empty-icon is-clean" />
+								<div className="rp-empty-title">工作区已是最新状态</div>
+								<div className="rp-empty-desc">没有未提交的代码改动</div>
+							</div>
+						) : (
+							<div className="git-groups-scroll">
+								{renderGroup("暂存区变更 (Staged)", status.stagedFiles, stagedOpen, setStagedOpen, true)}
+								{renderGroup("更改 (Changes)", status.unstagedFiles, unstagedOpen, setUnstagedOpen, false)}
+								{renderGroup("未跟踪文件 (Untracked)", status.untrackedFiles, untrackedOpen, setUntrackedOpen, false)}
+							</div>
+						)}
 
-				{selectedFile && (
-					<div className="git-diff-container">
-						{diffLoading ? (
-							<div className="rp-loading">正在读取 Diff 对比…</div>
-						) : diffContent ? (
-							<DiffView
-								filePath={selectedFile.file}
-								diff={diffContent}
-								onClose={() => {
-									setSelectedFile(null);
-									setDiffContent(null);
-								}}
-								onAskAi={handleAskAi}
-							/>
-						) : null}
+						{selectedFile && (
+							<div className="git-diff-container">
+								{diffLoading ? (
+									<div className="rp-loading">正在读取 Diff 对比…</div>
+								) : diffContent ? (
+									<DiffView
+										filePath={selectedFile.file}
+										diff={diffContent}
+										onClose={() => {
+											setSelectedFile(null);
+											setDiffContent(null);
+										}}
+										onAskAi={handleAskAi}
+									/>
+								) : null}
+							</div>
+						)}
+					</>
+				) : (
+					/* 提交历史子视图 */
+					<div className="git-commits-view">
+						{selectedCommit ? (
+							/* 选中单条提交的详情 */
+							<div className="git-commit-detail">
+								<div className="git-commit-detail-header">
+									<button
+										type="button"
+										className="git-back-btn"
+										onClick={() => {
+											setSelectedCommit(null);
+											setCommitFileDiff(null);
+										}}
+									>
+										<ArrowLeft size={13} />
+										<span>返回提交列表</span>
+									</button>
+									<span className="git-commit-hash-pill">{selectedCommit.shortHash}</span>
+								</div>
+
+								<div className="git-commit-meta">
+									<h3 className="git-commit-subject">{selectedCommit.subject}</h3>
+									{selectedCommit.body && (
+										<pre className="git-commit-body">{selectedCommit.body}</pre>
+									)}
+									<div className="git-commit-author-row">
+										<span className="git-commit-author">
+											<User size={12} />
+											{selectedCommit.author}
+										</span>
+										<span className="git-commit-time">
+											<Clock size={12} />
+											{selectedCommit.relativeDate}
+										</span>
+									</div>
+								</div>
+
+								<div className="git-commit-files-header">
+									<span>修改文件 ({selectedCommit.files.length})</span>
+								</div>
+
+								<div className="git-files-list">
+									{selectedCommit.files.map(f => {
+										const isSelected = commitFileDiff?.file === f.path;
+										return (
+											<div
+												key={f.path}
+												className={`git-file-row${isSelected ? " is-selected" : ""}`}
+												onClick={() => void handleSelectCommitFile(selectedCommit.hash, f.path)}
+											>
+												<span className={`git-status-badge is-${f.status}`}>{f.status[0]?.toUpperCase()}</span>
+												<span className="git-file-name" title={f.path}>{f.path}</span>
+												<div className="git-file-actions">
+													<button
+														type="button"
+														className="git-action-btn"
+														title="查看提交 Diff"
+													>
+														<Eye size={12} />
+													</button>
+												</div>
+											</div>
+										);
+									})}
+								</div>
+
+								{commitFileDiff && (
+									<div className="git-diff-container">
+										{commitDiffLoading ? (
+											<div className="rp-loading">正在读取该文件 Diff…</div>
+										) : (
+											<DiffView
+												filePath={commitFileDiff.file}
+												diff={commitFileDiff.diff}
+												onClose={() => setCommitFileDiff(null)}
+												onAskAi={handleAskAi}
+											/>
+										)}
+									</div>
+								)}
+							</div>
+						) : (
+							/* 提交列表 */
+							<div className="git-commits-list">
+								{commits.length === 0 && !commitsLoading ? (
+									<div className="rp-empty">
+										<GitCommit size={28} className="rp-empty-icon" />
+										<div className="rp-empty-title">暂无提交记录</div>
+									</div>
+								) : (
+									commits.map(commit => (
+										<button
+											key={commit.hash}
+											type="button"
+											className="git-commit-row"
+											onClick={() => void handleSelectCommit(commit.hash)}
+										>
+											<div className="git-commit-row-top">
+												<span className="git-commit-hash">{commit.shortHash}</span>
+												<span className="git-commit-time">{commit.relativeDate}</span>
+											</div>
+											<div className="git-commit-row-msg">{commit.subject}</div>
+											<div className="git-commit-row-author">{commit.author}</div>
+										</button>
+									))
+								)}
+							</div>
+						)}
 					</div>
 				)}
 			</div>

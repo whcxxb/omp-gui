@@ -272,10 +272,8 @@ export function SettingsModal(props: SettingsModalProps): ReactNode {
 												</div>
 											</div>
 											<div className="set-theme-info">
-												<span className="set-theme-name">{t.label} 主题</span>
-												<span className="set-theme-desc">
-													{t.id === "default" ? "中性灰阶，低饱和护眼对比度" : "Claude 官方暖灰调与陶土橙强调色"}
-												</span>
+												<span className="set-theme-name">{t.label}</span>
+												<span className="set-theme-desc">{t.desc}</span>
 											</div>
 											{theme === t.id && <Check size={14} className="set-check-icon" />}
 										</button>

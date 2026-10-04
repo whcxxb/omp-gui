@@ -1,6 +1,7 @@
 import {
 	FolderTree,
 	GitBranch,
+	Terminal,
 	Workflow,
 	X,
 } from "lucide-react";
@@ -10,7 +11,7 @@ import { setRightPanelOpen, setRightPanelTab } from "@/state/threads";
 import { SubagentPanel } from "../SubagentPanel";
 import { FileTree } from "./FileTree";
 import { GitPanel } from "./GitPanel";
-
+import { TerminalPanel } from "./TerminalPanel";
 const RIGHT_PANEL_WIDTH_KEY = "omp-gui.right-panel-width";
 const DEFAULT_RIGHT_PANEL_WIDTH = 340;
 const MIN_WIDTH = 260;
@@ -131,6 +132,15 @@ export function RightPanel({ thread, onInsertText }: RightPanelProps): ReactNode
 
 					<button
 						type="button"
+						className={`rp-tab${activeTab === "terminal" ? " is-active" : ""}`}
+						onClick={() => setRightPanelTab(thread.key, "terminal")}
+					>
+						<Terminal size={13} />
+						<span>终端</span>
+					</button>
+
+					<button
+						type="button"
 						className={`rp-tab${activeTab === "subagents" ? " is-active" : ""}`}
 						onClick={() => setRightPanelTab(thread.key, "subagents")}
 					>
@@ -153,6 +163,7 @@ export function RightPanel({ thread, onInsertText }: RightPanelProps): ReactNode
 			<div className="rp-body">
 				{activeTab === "files" && <FileTree cwd={thread.cwd} onInsertText={onInsertText} />}
 				{activeTab === "git" && <GitPanel cwd={thread.cwd} onInsertText={onInsertText} />}
+				{activeTab === "terminal" && <TerminalPanel cwd={thread.cwd} />}
 				{activeTab === "subagents" && <SubagentPanel thread={thread} />}
 			</div>
 		</aside>

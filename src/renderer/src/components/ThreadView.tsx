@@ -1,7 +1,7 @@
-import { ChevronRight, GripVertical } from "lucide-react";
+import { Brain, Check, ChevronRight, Copy, CornerDownLeft, GitFork, GripVertical, Quote } from "lucide-react";
 import { memo, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { ActiveTool } from "@/collab/lib/client";
-import { Markdown } from "@/collab/components/transcript/Markdown";
+import { Markdown } from "./Markdown";
 import { messageText } from "@/collab/lib/format";
 import { ToolView } from "@/collab/tool-render";
 import type {
@@ -11,35 +11,70 @@ import type {
 	TextContent,
 	ToolResultMessage,
 } from "@/collab/wire/index";
+import { forkThread } from "@/state/threads";
 import type { Thread } from "@/state/types";
-
-/** 距底部小于该值时自动跟随新内容 */
+import { TodoHud } from "./TodoHud";
 const FOLLOW_THRESHOLD_PX = 80;
 /** 长会话只挂载尾部若干条，向上滚动再逐批加载 */
 const WINDOW = 120;
 
 function ThinkingBlock({ text, redacted, live }: { text: string; redacted?: boolean; live?: boolean }): ReactNode {
 	const [open, setOpen] = useState(false);
+	const [elapsedSec, setElapsedSec] = useState(0);
+	const startTimeRef = useRef<number | null>(null);
+
+	useEffect(() => {
+		if (live) {
+			if (!startTimeRef.current) startTimeRef.current = Date.now();
+			const interval = setInterval(() => {
+				if (startTimeRef.current) {
+					setElapsedSec(Math.max(1, Math.round((Date.now() - startTimeRef.current) / 1000)));
+				}
+			}, 500);
+			return () => clearInterval(interval);
+		}
+		if (startTimeRef.current && elapsedSec === 0) {
+			setElapsedSec(Math.max(1, Math.round((Date.now() - startTimeRef.current) / 1000)));
+		}
+	}, [live]);
+
+	const charCount = text ? text.length : 0;
+	let label = "思考过程";
+	if (redacted) {
+		label = "思考过程（已隐藏）";
+	} else if (live) {
+		label = elapsedSec > 0 ? `深度思考中 (${elapsedSec}s)...` : "深度思考中...";
+	} else if (charCount > 0) {
+		label = elapsedSec > 0 ? `已思考 ${elapsedSec}s · ${charCount.toLocaleString()} 字符` : `已深度思考 · ${charCount.toLocaleString()} 字符`;
+	}
+
 	return (
-		<div className="th-think">
+		<div className={`th-think${live ? " is-live" : ""}${open ? " is-open" : ""}`}>
 			<button type="button" className="th-think-head" onClick={() => setOpen(v => !v)} aria-expanded={open}>
+				<Brain size={13} className={`th-think-icon${live ? " is-pulsing" : ""}`} />
+				<span className={`th-think-label${live ? " th-shimmer" : ""}`}>{label}</span>
 				<ChevronRight size={12} className={`th-chev${open ? " is-open" : ""}`} />
-				<span className={live ? "th-shimmer" : undefined}>{redacted ? "思考过程（已隐藏）" : "思考过程"}</span>
 			</button>
-			{open && <div className="th-think-body">{redacted ? "模型提供方未返回思考内容" : text}</div>}
+			{open && (
+				<div className="th-think-body">
+					{redacted ? (
+						<div className="th-think-redacted">模型提供方未返回思考内容</div>
+					) : (
+						<pre className="th-think-text">{text}</pre>
+					)}
+				</div>
+			)}
 		</div>
 	);
 }
 
 function UserContent({ content }: { content: string | readonly (TextContent | ImageContent)[] }): ReactNode {
-	if (typeof content === "string") return <div className="th-user-text">{content}</div>;
+	if (typeof content === "string") return <Markdown text={content} />;
 	return (
 		<>
 			{content.map((block, i) =>
 				block.type === "text" ? (
-					<div key={i} className="th-user-text">
-						{block.text}
-					</div>
+					<Markdown key={i} text={block.text} />
 				) : block.type === "image" ? (
 					<img key={i} className="th-user-img" src={`data:${block.mimeType};base64,${block.data}`} alt="附件图片" />
 				) : null,
@@ -47,7 +82,6 @@ function UserContent({ content }: { content: string | readonly (TextContent | Im
 		</>
 	);
 }
-
 function extractUserText(content: string | readonly (TextContent | ImageContent)[]): string {
 	if (typeof content === "string") return content;
 	return content
@@ -95,37 +129,37 @@ function getFullTimeString(raw?: number | string): string | undefined {
 }
 
 interface AssistantProps {
+	threadKey: string;
+	entryId?: string;
 	message: AssistantMessage;
 	results: ReadonlyMap<string, ToolResultMessage>;
 	active: ReadonlyMap<string, ActiveTool>;
 	pending: boolean;
 }
 
-function AssistantBody({ message, results, active, pending }: AssistantProps): ReactNode {
+function AssistantBody({ threadKey, entryId, message, results, active, pending }: AssistantProps): ReactNode {
+	const [copied, setCopied] = useState(false);
 	const last = message.content.length - 1;
 	const assistantText = extractAssistantText(message);
+
+	const handleCopy = (): void => {
+		if (!assistantText) return;
+		void navigator.clipboard.writeText(assistantText);
+		setCopied(true);
+		setTimeout(() => setCopied(false), 1500);
+	};
+
+	const handleQuote = (): void => {
+		if (!assistantText) return;
+		window.dispatchEvent(
+			new CustomEvent("omp:insert-prompt", {
+				detail: { text: `> 助手回复:\n> ${assistantText.slice(0, 300).replace(/\n/g, "\n> ")}\n\n` },
+			}),
+		);
+	};
+
 	return (
 		<div className="th-assistant">
-			{assistantText && !pending && (
-				<div
-					className="th-assistant-drag"
-					draggable={true}
-					title="拖拽此回复记录到输入框以引入"
-					onDragStart={e => {
-						const payload = {
-							type: "message-record",
-							role: "assistant",
-							content: assistantText,
-							summary: assistantText.slice(0, 40),
-						};
-						e.dataTransfer.setData("application/x-omp-message", JSON.stringify(payload));
-						e.dataTransfer.setData("text/plain", `> 助手回复: ${assistantText}`);
-						e.dataTransfer.effectAllowed = "copyLink";
-					}}
-				>
-					<GripVertical size={13} />
-				</div>
-			)}
 			{message.content.map((block, i) => {
 				switch (block.type) {
 					case "thinking":
@@ -167,15 +201,167 @@ function AssistantBody({ message, results, active, pending }: AssistantProps): R
 			)}
 			{!pending && message.stopReason === "aborted" && <div className="th-stop">已中断</div>}
 			{!pending && message.stopReason === "length" && <div className="th-stop">输出达到长度上限</div>}
+
+			{!pending && assistantText && (
+				<div className="th-assistant-bar">
+					<button
+						type="button"
+						className="th-action-btn"
+						title={copied ? "已复制全文" : "复制回复全文"}
+						onClick={handleCopy}
+					>
+						{copied ? <Check size={12} className="is-success" /> : <Copy size={12} />}
+						<span>{copied ? "已复制" : "复制"}</span>
+					</button>
+					<button
+						type="button"
+						className="th-action-btn"
+						title="引用此回复到输入框"
+						onClick={handleQuote}
+					>
+						<Quote size={12} />
+						<span>引用</span>
+					</button>
+					{entryId && (
+						<button
+							type="button"
+							className="th-action-btn"
+							title="由此回复节点派生新分支会话"
+							onClick={() => void forkThread(threadKey, entryId)}
+						>
+							<GitFork size={12} />
+							<span>分支</span>
+						</button>
+					)}
+					<div
+						className="th-action-drag"
+						draggable={true}
+						title="拖拽此回复记录到输入框以引入"
+						onDragStart={e => {
+							const payload = {
+								type: "message-record",
+								role: "assistant",
+								content: assistantText,
+								summary: assistantText.slice(0, 40),
+							};
+							e.dataTransfer.setData("application/x-omp-message", JSON.stringify(payload));
+							e.dataTransfer.setData("text/plain", `> 助手回复: ${assistantText}`);
+							e.dataTransfer.effectAllowed = "copyLink";
+						}}
+					>
+						<GripVertical size={12} />
+						<span>拖拽引用</span>
+					</div>
+				</div>
+			)}
+		</div>
+	);
+}
+
+function UserMessageBubble({
+	threadKey,
+	entryId,
+	content,
+	timestamp,
+}: {
+	threadKey: string;
+	entryId?: string;
+	content: string | readonly (TextContent | ImageContent)[];
+	timestamp?: number | string;
+}): ReactNode {
+	const [copied, setCopied] = useState(false);
+	const userText = extractUserText(content);
+	const timeStr = formatMessageTime(timestamp);
+	const fullTime = getFullTimeString(timestamp);
+
+	const handleCopy = (): void => {
+		if (!userText) return;
+		void navigator.clipboard.writeText(userText);
+		setCopied(true);
+		setTimeout(() => setCopied(false), 1500);
+	};
+
+	const handleQuote = (): void => {
+		if (!userText) return;
+		window.dispatchEvent(new CustomEvent("omp:insert-prompt", { detail: { text: userText } }));
+	};
+
+	return (
+		<div className="th-user">
+			<div
+				className="th-user-bubble"
+				draggable={Boolean(userText)}
+				title={userText ? "可拖拽此条提问记录到输入框以引入" : undefined}
+				onDragStart={e => {
+					if (!userText) return;
+					const payload = {
+						type: "message-record",
+						role: "user",
+						content: userText,
+						summary: userText.slice(0, 40),
+					};
+					e.dataTransfer.setData("application/x-omp-message", JSON.stringify(payload));
+					e.dataTransfer.setData("text/plain", `> 用户提问: ${userText}`);
+					e.dataTransfer.effectAllowed = "copyLink";
+				}}
+			>
+				<div className="th-user-body">
+					<UserContent content={content} />
+				</div>
+				<div className="th-user-footer">
+					{timeStr && (
+						<span className="th-user-time" title={fullTime}>
+							{timeStr}
+						</span>
+					)}
+					<div className="th-user-actions">
+						<button
+							type="button"
+							className="th-action-btn"
+							title={copied ? "已复制提问" : "复制提问"}
+							onClick={handleCopy}
+						>
+							{copied ? <Check size={12} className="is-success" /> : <Copy size={12} />}
+						</button>
+						<button
+							type="button"
+							className="th-action-btn"
+							title="编辑并填入输入框"
+							onClick={handleQuote}
+						>
+							<CornerDownLeft size={12} />
+						</button>
+						{entryId && (
+							<button
+								type="button"
+								className="th-action-btn"
+								title="由此提问节点派生新分支会话"
+								onClick={() => void forkThread(threadKey, entryId)}
+							>
+								<GitFork size={12} />
+								<span>分支</span>
+							</button>
+						)}
+						<div
+							className="th-action-drag"
+							title="按住拖拽至输入框引用"
+						>
+							<GripVertical size={12} />
+						</div>
+					</div>
+				</div>
+			</div>
 		</div>
 	);
 }
 
 const EntryRow = memo(function EntryRow({
+	threadKey,
 	entry,
 	results,
 	active,
 }: {
+	threadKey: string;
 	entry: SessionEntry;
 	results: ReadonlyMap<string, ToolResultMessage>;
 	active: ReadonlyMap<string, ActiveTool>;
@@ -185,40 +371,27 @@ const EntryRow = memo(function EntryRow({
 			const msg = entry.message;
 			if (msg.role === "user") {
 				if (msg.synthetic) return null;
-				const timeRaw = msg.timestamp || entry.timestamp;
-				const timeStr = formatMessageTime(timeRaw);
-				const fullTime = getFullTimeString(timeRaw);
-				const userText = extractUserText(msg.content);
 				return (
-					<div className="th-user">
-						<div
-							className="th-user-bubble"
-							draggable={Boolean(userText)}
-							title={userText ? "可拖拽此条提问记录到输入框以引入" : undefined}
-							onDragStart={e => {
-								if (!userText) return;
-								const payload = {
-									type: "message-record",
-									role: "user",
-									content: userText,
-									summary: userText.slice(0, 40),
-								};
-								e.dataTransfer.setData("application/x-omp-message", JSON.stringify(payload));
-								e.dataTransfer.setData("text/plain", `> 用户提问: ${userText}`);
-								e.dataTransfer.effectAllowed = "copyLink";
-							}}
-						>
-							<UserContent content={msg.content} />
-							{timeStr && (
-								<div className="th-user-meta" title={fullTime}>
-									<span className="th-user-time">{timeStr}</span>
-								</div>
-							)}
-						</div>
-					</div>
+					<UserMessageBubble
+						threadKey={threadKey}
+						entryId={entry.id}
+						content={msg.content}
+						timestamp={msg.timestamp || entry.timestamp}
+					/>
 				);
 			}
-			if (msg.role === "assistant") return <AssistantBody message={msg} results={results} active={active} pending={false} />;
+			if (msg.role === "assistant") {
+				return (
+					<AssistantBody
+						threadKey={threadKey}
+						entryId={entry.id}
+						message={msg}
+						results={results}
+						active={active}
+						pending={false}
+					/>
+				);
+			}
 			return null;
 		}
 		case "custom_message":
@@ -301,9 +474,9 @@ export function ThreadView({ thread }: { thread: Thread }): ReactNode {
 			<div className="th-column">
 				{from > 0 && <div className="th-earlier">向上滚动加载更早的 {from} 条记录</div>}
 				{visible.map(entry => (
-					<EntryRow key={entry.id} entry={entry} results={results} active={activeTools} />
+					<EntryRow key={entry.id} threadKey={thread.key} entry={entry} results={results} active={activeTools} />
 				))}
-				{stream && <AssistantBody message={stream} results={results} active={activeTools} pending />}
+				{stream && <AssistantBody threadKey={thread.key} message={stream} results={results} active={activeTools} pending />}
 				{tailTools.length > 0 && (
 					<div className="th-assistant">
 						{tailTools.map(tool => (
@@ -324,7 +497,13 @@ export function ThreadView({ thread }: { thread: Thread }): ReactNode {
 						))}
 					</div>
 				)}
-				{working && !stream && activeTools.size === 0 && <div className="th-working th-shimmer">正在思考</div>}
+				{working && !stream && activeTools.size === 0 && (
+					<div className="th-working-pill">
+						<Brain size={14} className="th-working-icon is-pulsing" />
+						<span className="th-shimmer">正在思考与构思...</span>
+					</div>
+				)}
+				<TodoHud thread={thread} />
 			</div>
 		</div>
 	);

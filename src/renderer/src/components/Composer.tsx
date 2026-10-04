@@ -3,8 +3,12 @@ import {
 	Brain,
 	Check,
 	ChevronDown,
+	Code2,
+	FileCode,
 	FileText,
+	HelpCircle,
 	Image as ImageIcon,
+	ListTodo,
 	MessagesSquare,
 	Paperclip,
 	Quote,
@@ -18,10 +22,9 @@ import {
 import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { ImageContent, SessionEntry } from "@/collab/wire/index";
 import { playSound } from "@/lib/sound";
-import { abort, enqueuePrompt, removeQueuedPrompt, runCommand, sendPrompt, setApprovalMode, setModel, setThinkingLevel } from "@/state/threads";
-import type { ApprovalMode, ModelInfo, QueuedPrompt, Thread, TimedAssistantMessage } from "@/state/types";
+import { abort, enqueuePrompt, removeQueuedPrompt, runCommand, sendPrompt, setApprovalMode, setExecutionMode, setModel, setThinkingLevel } from "@/state/threads";
+import type { ApprovalMode, ExecutionMode, ModelInfo, QueuedPrompt, Thread, TimedAssistantMessage } from "@/state/types";
 import { QueuedPromptTray } from "./QueuedPromptTray";
-
 export type ComposerAttachment =
 	| {
 			id: string;
@@ -275,6 +278,12 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 	const historyIndexRef = useRef<number | null>(null);
 	const draftRef = useRef<string>("");
 	const connected = thread.status === "ready";
+
+	const [mentionActive, setMentionActive] = useState(false);
+	const [mentionQuery, setMentionQuery] = useState("");
+	const [mentionIndex, setMentionIndex] = useState(0);
+	const [projectFiles, setProjectFiles] = useState<string[]>([]);
+
 	useEffect(() => {
 		if (autoFocus) inputRef.current?.focus();
 	}, [thread.key, autoFocus]);
@@ -285,6 +294,41 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 		el.style.height = "auto";
 		el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
 	}, [text, attachments]);
+
+	useEffect(() => {
+		if (!mentionActive) return;
+		let cancelled = false;
+		window.omp
+			.searchProjectFiles(thread.cwd, mentionQuery)
+			.then(files => {
+				if (!cancelled) setProjectFiles(files);
+			})
+			.catch(() => {
+				if (!cancelled) setProjectFiles([]);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [mentionActive, mentionQuery, thread.cwd]);
+
+	const insertMention = (filePath: string): void => {
+		const cursor = inputRef.current?.selectionStart ?? text.length;
+		const before = text.slice(0, cursor);
+		const after = text.slice(cursor);
+		const atIndex = before.lastIndexOf("@");
+		if (atIndex !== -1) {
+			const newBefore = `${before.slice(0, atIndex)}@${filePath} `;
+			setText(newBefore + after);
+			setMentionActive(false);
+			requestAnimationFrame(() => {
+				if (inputRef.current) {
+					inputRef.current.selectionStart = newBefore.length;
+					inputRef.current.selectionEnd = newBefore.length;
+					inputRef.current.focus();
+				}
+			});
+		}
+	};
 
 
 
@@ -467,6 +511,29 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 	}, []);
 
 	const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+		if (mentionActive && projectFiles.length > 0) {
+			if (event.key === "ArrowDown") {
+				event.preventDefault();
+				setMentionIndex(i => (i + 1) % projectFiles.length);
+				return;
+			}
+			if (event.key === "ArrowUp") {
+				event.preventDefault();
+				setMentionIndex(i => (i - 1 + projectFiles.length) % projectFiles.length);
+				return;
+			}
+			if (event.key === "Enter" || event.key === "Tab") {
+				event.preventDefault();
+				insertMention(projectFiles[mentionIndex] ?? projectFiles[0]);
+				return;
+			}
+			if (event.key === "Escape") {
+				event.preventDefault();
+				setMentionActive(false);
+				return;
+			}
+		}
+
 		if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
 			event.preventDefault();
 			submit();
@@ -739,16 +806,63 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 						? "正在连接 omp…"
 						: thread.working
 							? "任务进行中... 输入新需求按 Enter 挂起排队，或可随时直接干预当前任务"
-							: "输入消息，Enter 发送，Shift+Enter 换行，支持拖拽文件/图片"
+							: thread.executionMode === "plan"
+								? "[计划模式] 描述架构或功能需求，模型将只读分析并输出计划步骤 (不修改文件)..."
+								: thread.executionMode === "ask"
+									? "[问答模式] 输入问题，模型将只读答疑与探讨..."
+									: "输入消息，Enter 发送，Shift+Enter 换行，支持 @ 文件与拖拽引入"
 				}
 				disabled={!connected}
 				onChange={e => {
 					historyIndexRef.current = null;
-					setText(e.target.value);
+					const newVal = e.target.value;
+					const cursor = e.target.selectionStart;
+					setText(newVal);
+
+					const beforeCursor = newVal.slice(0, cursor);
+					const match = /(?:^|\s)@([^\s]*)$/.exec(beforeCursor);
+					if (match) {
+						setMentionActive(true);
+						setMentionQuery(match[1]);
+						setMentionIndex(0);
+					} else {
+						setMentionActive(false);
+					}
 				}}
 				onKeyDown={onKeyDown}
 				onPaste={onPaste}
 			/>
+
+			{mentionActive && (
+				<div className="cp-mention-pop">
+					<div className="cp-mention-head">
+						<FileCode size={13} className="cp-mention-icon" />
+						<span>引用项目文件（按 ↑↓ 选择，Enter 插入，Esc 取消）</span>
+					</div>
+					<div className="cp-mention-list">
+						{projectFiles.length === 0 ? (
+							<div className="cp-mention-empty">
+								{mentionQuery ? `未找到匹配 “${mentionQuery}” 的文件` : "暂无项目文件"}
+							</div>
+						) : (
+							projectFiles.map((file, idx) => (
+								<button
+									key={file}
+									type="button"
+									className={`cp-mention-item${idx === mentionIndex ? " is-active" : ""}`}
+									onMouseDown={e => {
+										e.preventDefault();
+										insertMention(file);
+									}}
+								>
+									<FileText size={13} className="cp-mention-file-icon" />
+									<span className="cp-mention-name">{file}</span>
+								</button>
+							))
+						)}
+					</div>
+				</div>
+			)}
 			<div className="cp-bar">
 				<button
 					type="button"
@@ -774,16 +888,20 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 						}
 					}}
 				/>
+				<ModePicker thread={thread} />
 				<ModelPicker thread={thread} />
 				<ThinkingPicker thread={thread} />
 				<ApprovalModePicker thread={thread} />
 				<div className="cp-spacer" />
-				{queued > 0 && <span className="cp-meta">排队 {queued}</span>}
+				{queued > 0 && <span className="cp-meta cp-meta-pill">排队 {queued}</span>}
 				{usage?.percent != null && (
-					<span className="cp-meta" title={`${usage.tokens ?? "-"} / ${usage.contextWindow ?? "-"} tokens`}>
+					<span className="cp-meta cp-meta-pill" title={`${usage.tokens ?? "-"} / ${usage.contextWindow ?? "-"} tokens`}>
 						上下文 {Math.round(usage.percent)}%
 					</span>
 				)}
+				<span className="cp-hint" title="按 Enter 发送，Shift+Enter 换行">
+					↵
+				</span>
 				{thread.working && !text.trim() && attachments.length === 0 ? (
 					<button
 						type="button"
@@ -800,7 +918,7 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 					<button
 						type="button"
 						className="cp-send"
-						title={thread.working ? "挂起排队 (任务结束后自动执行)" : "发送"}
+						title={thread.working ? "挂起排队 (任务结束后自动执行)" : "发送 (Enter)"}
 						disabled={!canSend}
 						onClick={submit}
 					>
@@ -1017,3 +1135,79 @@ function ApprovalModePicker({ thread }: { thread: Thread }): ReactNode {
 	);
 }
 
+const EXECUTION_MODES: Record<ExecutionMode, { label: string; sub: string; desc: string; icon: typeof Code2 }> = {
+	edit: {
+		label: "编辑模式",
+		sub: "Edit / Agent",
+		desc: "全自主代理，允许读写与直接修改项目文件",
+		icon: Code2,
+	},
+	plan: {
+		label: "计划模式",
+		sub: "Plan Mode",
+		desc: "只读探索分析，输出分步实施方案与 Todo，不修改代码",
+		icon: ListTodo,
+	},
+	ask: {
+		label: "问答模式",
+		sub: "Ask Mode",
+		desc: "咨询与技术答疑探讨，不进行长线任务执行与改写",
+		icon: HelpCircle,
+	},
+};
+
+function ModePicker({ thread }: { thread: Thread }): ReactNode {
+	const [open, setOpen, ref] = usePopover();
+	const currentMode = thread.executionMode ?? "edit";
+	const current = EXECUTION_MODES[currentMode] ?? EXECUTION_MODES.edit;
+	const Icon = current.icon;
+	const isPlan = currentMode === "plan";
+
+	return (
+		<div className="pk" ref={ref}>
+			<button
+				type="button"
+				className={`pk-trigger${isPlan ? " is-plan-active" : ""}`}
+				title={`当前运行模式：${current.label}（${current.desc}）`}
+				disabled={thread.status !== "ready"}
+				onClick={() => setOpen(!open)}
+			>
+				<Icon size={12} className={isPlan ? "pk-plan-icon" : undefined} />
+				<span className="pk-label">{current.label}</span>
+				<ChevronDown size={11} style={{ opacity: 0.6 }} />
+			</button>
+			{open && (
+				<div className="pk-pop is-approval">
+					<div className="pk-list">
+						{(Object.keys(EXECUTION_MODES) as ExecutionMode[]).map(mode => {
+							const cfg = EXECUTION_MODES[mode];
+							const selected = mode === currentMode;
+							const ModeIcon = cfg.icon;
+							return (
+								<button
+									type="button"
+									key={mode}
+									className={`pk-item is-multiline${selected ? " is-selected" : ""}`}
+									onClick={() => {
+										setOpen(false);
+										setExecutionMode(thread.key, mode);
+									}}
+								>
+									<div className="pk-item-content">
+										<div className="pk-item-row">
+											<ModeIcon size={12} />
+											<span className="pk-item-main">{cfg.label}</span>
+											<span className="pk-item-sub">{cfg.sub}</span>
+										</div>
+										<span className="pk-item-desc">{cfg.desc}</span>
+									</div>
+									{selected && <Check size={13} />}
+								</button>
+							);
+						})}
+					</div>
+				</div>
+			)}
+		</div>
+	);
+}

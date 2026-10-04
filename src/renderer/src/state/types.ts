@@ -1,7 +1,8 @@
 import type { ActiveTool } from "@/collab/lib/client";
 import type { ApprovalMode } from "@shared/ipc";
-
 export type { ApprovalMode };
+export type ExecutionMode = "edit" | "plan" | "ask";
+
 import type { AssistantMessage, ImageContent, SessionEntry } from "@/collab/wire/index";
 
 export interface QueuedPromptAttachment {
@@ -93,7 +94,7 @@ export interface TodoPhase {
 	tasks: TodoItem[];
 }
 
-export type RightPanelTab = "files" | "git" | "subagents";
+export type RightPanelTab = "files" | "git" | "terminal" | "subagents";
 
 /** get_state 的子集 */
 export interface SessionStateSnapshot {
@@ -129,6 +130,7 @@ export interface Thread {
 	cwd: string;
 	sessionFile?: string;
 	approvalMode: ApprovalMode;
+	executionMode: ExecutionMode;
 	status: ThreadStatus;
 	error?: string;
 	entries: SessionEntry[];

@@ -1,4 +1,4 @@
-import type { OmpApi, RuntimeMessage } from "@shared/ipc";
+import type { OmpApi, RuntimeMessage, TerminalExitEvent, TerminalOutputEvent } from "@shared/ipc";
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 
 const api: OmpApi = {
@@ -38,6 +38,23 @@ const api: OmpApi = {
 	searchRegistrySkills: query => ipcRenderer.invoke("omp:search-registry-skills", query),
 	installRegistrySkill: (name, isGlobal, cwd) => ipcRenderer.invoke("omp:install-registry-skill", name, isGlobal, cwd),
 	generateTitle: prompt => ipcRenderer.invoke("omp:generate-title", prompt),
+	searchProjectFiles: (cwd, query) => ipcRenderer.invoke("omp:search-project-files", cwd, query),
+	forkSession: options => ipcRenderer.invoke("omp:fork-session", options),
+	gitLog: (cwd, limit) => ipcRenderer.invoke("omp:git-log", cwd, limit),
+	gitCommitDetail: (cwd, hash) => ipcRenderer.invoke("omp:git-commit-detail", cwd, hash),
+	gitCommitDiff: (cwd, hash, file) => ipcRenderer.invoke("omp:git-commit-diff", cwd, hash, file),
+	runTerminalCommand: (cwd, command) => ipcRenderer.invoke("omp:terminal-exec", { cwd, command }),
+	killTerminalCommand: id => ipcRenderer.invoke("omp:terminal-kill", { id }),
+	onTerminalOutput(listener) {
+		const handler = (_e: unknown, event: TerminalOutputEvent) => listener(event);
+		ipcRenderer.on("omp:terminal-output", handler);
+		return () => ipcRenderer.removeListener("omp:terminal-output", handler);
+	},
+	onTerminalExit(listener) {
+		const handler = (_e: unknown, event: TerminalExitEvent) => listener(event);
+		ipcRenderer.on("omp:terminal-exit", handler);
+		return () => ipcRenderer.removeListener("omp:terminal-exit", handler);
+	},
 	onRuntime(listener) {
 		const handler = (_e: unknown, runtimeId: string, message: RuntimeMessage) => listener(runtimeId, message);
 		ipcRenderer.on("omp:runtime", handler);

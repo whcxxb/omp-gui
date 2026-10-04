@@ -1,4 +1,4 @@
-import { FolderOpen, FolderPlus, PanelLeft, PanelRight, Pencil, RotateCw, X } from "lucide-react";
+import { FolderOpen, FolderPlus, GitBranch, ListTodo, PanelLeft, PanelRight, Pencil, RotateCw, Search, Sparkles, X } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import type { ProjectSummary, SessionSummary } from "@shared/ipc";
 import { Composer } from "./components/Composer";
@@ -7,7 +7,6 @@ import { ThreadView } from "./components/ThreadView";
 import { RightPanel } from "./components/RightPanel";
 import { CommandPalette } from "./components/CommandPalette";
 import { SettingsModal } from "./components/SettingsModal";
-import { TodoHud } from "./components/TodoHud";
 import { UiRequestCard } from "./components/UiRequestCard";
 import { exportThreadToMarkdown } from "./lib/export";
 import { playSound } from "./lib/sound";
@@ -72,6 +71,17 @@ export function App(): ReactNode {
 			offProjects();
 		};
 	}, [refreshProjects]);
+
+	useEffect(() => {
+		const handleSelect = (e: Event): void => {
+			const detail = (e as CustomEvent<{ key: string }>).detail;
+			if (detail?.key) {
+				selectThread(detail.key);
+			}
+		};
+		window.addEventListener("omp:select-thread", handleSelect);
+		return () => window.removeEventListener("omp:select-thread", handleSelect);
+	}, [threads]);
 
 	const active = threads.find(t => t.key === activeKey) ?? null;
 	const activeProject = active?.cwd ?? currentProject ?? projects[0]?.path ?? null;
@@ -434,8 +444,71 @@ function ThreadPane({
 
 			{empty ? (
 				<div className="hero">
+					<div className="hero-emblem">
+						<Sparkles size={15} />
+						<span>新对话工作区</span>
+					</div>
 					<h1 className="hero-title">要在 {projectName} 里做什么？</h1>
-					{thread.status === "starting" && <p className="hero-sub">正在启动 omp</p>}
+					<p className="hero-sub">{shortPath(thread.cwd)}</p>
+					{thread.status === "starting" && <p className="hero-starting">正在启动 omp 核心引擎...</p>}
+					<div className="hero-chips">
+						<button
+							type="button"
+							className="hero-chip"
+							onClick={() => {
+								window.dispatchEvent(
+									new CustomEvent("omp:insert-prompt", {
+										detail: { text: "请概述当前项目的代码架构、核心模块以及主要技术栈" },
+									}),
+								);
+							}}
+						>
+							<Search size={13} className="hero-chip-icon" />
+							<span>梳理项目架构与核心模块</span>
+						</button>
+						<button
+							type="button"
+							className="hero-chip"
+							onClick={() => {
+								window.dispatchEvent(
+									new CustomEvent("omp:insert-prompt", {
+										detail: { text: "检查当前 Git 工作区的代码变动与状态，并给出审查总结" },
+									}),
+								);
+							}}
+						>
+							<GitBranch size={13} className="hero-chip-icon" />
+							<span>审查未提交的 Git 代码变更</span>
+						</button>
+						<button
+							type="button"
+							className="hero-chip"
+							onClick={() => {
+								window.dispatchEvent(
+									new CustomEvent("omp:insert-prompt", {
+										detail: { text: "审查当前项目潜在的代码隐患、类型错误或性能瓶颈" },
+									}),
+								);
+							}}
+						>
+							<Sparkles size={13} className="hero-chip-icon" />
+							<span>诊断潜在问题与改进点</span>
+						</button>
+						<button
+							type="button"
+							className="hero-chip"
+							onClick={() => {
+								window.dispatchEvent(
+									new CustomEvent("omp:insert-prompt", {
+										detail: { text: "我想为当前项目实现一个新功能：\n1. 功能目标：\n2. 涉及模块：\n请先提供规划方案与分步步骤。" },
+									}),
+								);
+							}}
+						>
+							<ListTodo size={13} className="hero-chip-icon" />
+							<span>规划新功能实施步骤</span>
+						</button>
+					</div>
 				</div>
 			) : (
 				<ThreadView thread={thread} />
@@ -454,7 +527,6 @@ function ThreadPane({
 				{thread.uiRequests.map(request => (
 					<UiRequestCard key={request.id} threadKey={thread.key} request={request} />
 				))}
-				<TodoHud thread={thread} />
 				<Composer thread={thread} autoFocus />
 			</div>
 				</div>

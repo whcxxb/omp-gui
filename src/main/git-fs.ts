@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { readdir, stat } from "node:fs/promises";
 import { extname, join, relative } from "node:path";
 import { promisify } from "node:util";
-import type { FileItem, GitChangedFile, GitDiffOptions, GitFileStatus, GitStatusResult } from "@shared/ipc";
+import type { FileItem, GitChangedFile, GitCommitDetail, GitCommitSummary, GitDiffOptions, GitFileStatus, GitStatusResult } from "@shared/ipc";
 import { shell } from "electron";
 import { loginEnv } from "./runtimes";
 
@@ -77,6 +77,60 @@ export async function listDir(cwd: string, subpath = ""): Promise<FileItem[]> {
 	} catch {
 		return [];
 	}
+}
+
+export async function searchProjectFiles(cwd: string, query = ""): Promise<string[]> {
+	const trimmedQuery = query.trim().toLowerCase();
+	// 优先使用 git ls-files 极速秒级索引
+	try {
+		const { stdout } = await exec("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {
+			cwd,
+			env: loginEnv(),
+			maxBuffer: 15 * 1024 * 1024,
+		});
+		const allFiles = stdout.split("\n").map(f => f.trim()).filter(Boolean);
+		if (!trimmedQuery) return allFiles.slice(0, 80);
+		return allFiles.filter(f => f.toLowerCase().includes(trimmedQuery)).slice(0, 60);
+	} catch {
+		// 非 git 项目或出错时回退
+	}
+
+	const results: string[] = [];
+	const IGNORED_DIRS: Record<string, true> = {
+		node_modules: true,
+		".git": true,
+		dist: true,
+		out: true,
+		target: true,
+		build: true,
+		".next": true,
+		".cache": true,
+		".turbo": true,
+	};
+
+	async function walk(dir: string, prefix = ""): Promise<void> {
+		if (results.length >= 60) return;
+		try {
+			const entries = await readdir(dir, { withFileTypes: true });
+			for (const entry of entries) {
+				if (entry.name.startsWith(".") && entry.name !== ".env" && entry.name !== ".omp") continue;
+				if (entry.isDirectory()) {
+					if (!IGNORED_DIRS[entry.name]) {
+						await walk(join(dir, entry.name), prefix ? `${prefix}/${entry.name}` : entry.name);
+					}
+				} else {
+					const relPath = prefix ? `${prefix}/${entry.name}` : entry.name;
+					if (!trimmedQuery || relPath.toLowerCase().includes(trimmedQuery)) {
+						results.push(relPath);
+						if (results.length >= 60) return;
+					}
+				}
+			}
+		} catch {}
+	}
+
+	await walk(cwd);
+	return results;
 }
 
 export async function gitStatus(cwd: string): Promise<GitStatusResult> {
@@ -235,5 +289,90 @@ export async function openInEditor(cwd: string, file: string): Promise<boolean> 
 	} catch {
 		// openPath 失败时不抛异常，而是返回错误描述
 		return (await shell.openPath(fullPath)) === "";
+	}
+}
+export async function gitLog(cwd: string, limit = 50): Promise<GitCommitSummary[]> {
+	try {
+		const { stdout } = await exec(
+			"git",
+			["log", "-n", String(limit), "--pretty=format:%H%x09%h%x09%an%x09%ar%x09%at%x09%s"],
+			{ cwd, env: loginEnv(), maxBuffer: 10 * 1024 * 1024 }
+		);
+		const lines = stdout.split("\n");
+		const commits: GitCommitSummary[] = [];
+		for (const line of lines) {
+			const parts = line.split("\t");
+			if (parts.length >= 6) {
+				commits.push({
+					hash: parts[0],
+					shortHash: parts[1],
+					author: parts[2],
+					relativeDate: parts[3],
+					timestamp: Number(parts[4]) * 1000,
+					subject: parts[5],
+				});
+			}
+		}
+		return commits;
+	} catch {
+		return [];
+	}
+}
+
+export async function gitCommitDetail(cwd: string, hash: string): Promise<GitCommitDetail | null> {
+	try {
+		const { stdout } = await exec(
+			"git",
+			["show", "--pretty=format:%H%x09%h%x09%an%x09%ar%x09%at%x09%s%n%b---END-COMMIT-META---", "--name-status", hash],
+			{ cwd, env: loginEnv(), maxBuffer: 10 * 1024 * 1024 }
+		);
+		const [metaPart, filesPart] = stdout.split("---END-COMMIT-META---");
+		if (!metaPart) return null;
+
+		const metaLines = metaPart.trim().split("\n");
+		const firstLineParts = (metaLines[0] || "").split("\t");
+		if (firstLineParts.length < 6) return null;
+
+		const body = metaLines.slice(1).join("\n").trim();
+		const files: Array<{ path: string; status: GitFileStatus }> = [];
+
+		if (filesPart) {
+			const fileLines = filesPart.trim().split("\n");
+			for (const fLine of fileLines) {
+				const trimmed = fLine.trim();
+				if (!trimmed) continue;
+				const [code, ...pathParts] = trimmed.split(/\s+/);
+				const filePath = pathParts.join(" ");
+				if (code && filePath) {
+					files.push({
+						path: filePath,
+						status: mapGitCode(code),
+					});
+				}
+			}
+		}
+
+		return {
+			hash: firstLineParts[0],
+			shortHash: firstLineParts[1],
+			author: firstLineParts[2],
+			relativeDate: firstLineParts[3],
+			timestamp: Number(firstLineParts[4]) * 1000,
+			subject: firstLineParts[5],
+			body,
+			files,
+		};
+	} catch {
+		return null;
+	}
+}
+
+export async function gitCommitDiff(cwd: string, hash: string, file?: string): Promise<string> {
+	try {
+		const args = file ? ["show", hash, "--", file] : ["show", hash];
+		const { stdout } = await exec("git", args, { cwd, env: loginEnv(), maxBuffer: 10 * 1024 * 1024 });
+		return stdout;
+	} catch (err) {
+		return err instanceof Error ? err.message : String(err);
 	}
 }

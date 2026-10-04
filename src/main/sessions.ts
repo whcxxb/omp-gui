@@ -213,3 +213,96 @@ export async function readSessionExcerpt(file: string, maxTurns = 6): Promise<st
 		return "";
 	}
 }
+
+export async function forkSession(options: {
+	cwd: string;
+	sourceSessionFile: string;
+	targetEntryId: string;
+}): Promise<string> {
+	const dir = resolve(sessionsDir());
+	const normalized = resolve(options.sourceSessionFile);
+	if (!normalized.startsWith(dir + sep)) {
+		throw new Error("非法会话路径");
+	}
+	if (!existsSync(normalized)) {
+		throw new Error("源会话文件不存在");
+	}
+
+	const content = await readFile(normalized, "utf8");
+	const lines = content.split("\n");
+
+	type Entry = { id?: string; parentId?: string | null; type?: string; [key: string]: unknown };
+	const allEntries: Entry[] = [];
+	let headerRow: Entry | null = null;
+	let title = "会话分支";
+
+	for (const line of lines) {
+		if (!line.trim()) continue;
+		try {
+			const row = JSON.parse(line) as Entry;
+			if (row.type === "title" && typeof row.title === "string") {
+				title = `${row.title} (分支)`;
+			} else if (row.type === "session") {
+				headerRow = row;
+			} else {
+				allEntries.push(row);
+			}
+		} catch {}
+	}
+
+	// 从 targetEntryId 向上回溯到根节点
+	const byId = new Map<string, Entry>();
+	for (const e of allEntries) {
+		if (e.id) byId.set(e.id, e);
+	}
+
+	const branchChain: Entry[] = [];
+	let curr = byId.get(options.targetEntryId);
+	while (curr) {
+		branchChain.push(curr);
+		curr = curr.parentId ? byId.get(curr.parentId) : undefined;
+	}
+	branchChain.reverse();
+
+	const finalEntries = branchChain.length > 0 ? branchChain : allEntries;
+
+	const parentDir = resolve(normalized, "..");
+	const newUuid = crypto.randomUUID();
+	const nowIso = new Date().toISOString();
+	const timeFilePrefix = nowIso.replace(/[:.]/g, "-");
+	const newFileName = `${timeFilePrefix}_${newUuid}.jsonl`;
+	const newFilePath = join(parentDir, newFileName);
+
+	const newHeader: Entry = {
+		...(headerRow || {}),
+		type: "session",
+		version: 3,
+		id: newUuid,
+		timestamp: nowIso,
+		cwd: options.cwd,
+		title,
+		titleSource: "fork",
+		forkedFrom: {
+			file: basename(options.sourceSessionFile),
+			entryId: options.targetEntryId,
+		},
+	};
+
+	const titleHeader = {
+		type: "title",
+		v: 1,
+		title,
+		source: "fork",
+		updatedAt: nowIso,
+	};
+
+	const outputLines = [
+		JSON.stringify(titleHeader),
+		JSON.stringify(newHeader),
+		...finalEntries.map(e => JSON.stringify(e)),
+		"",
+	];
+
+	await writeFile(newFilePath, outputLines.join("\n"), "utf8");
+	return newFilePath;
+}

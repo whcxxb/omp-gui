@@ -1,26 +1,31 @@
-/* 设计 token：界面中唯一允许出现原始色值的文件。
- * 变量名与上游 collab-web 保持一致，工具卡片与 Markdown 样式直接复用。
- * 中性灰阶为主，单一强调色只用于焦点与链接。 */
+/* 设计 token：界面中唯一定义色彩与层级系统级变量的文件。
+ * 变量名与上游 collab-web 保持兼容，工具卡片与 Markdown 样式直接复用。
+ * 扩充现代浮岛阴影、高低表面层级 (Surfaces)、圆角梯度与主题预设。 */
+
 :root {
 	color-scheme: dark;
 
+	/* 表面层级 (Elevation Surfaces) */
 	--bg: oklch(0.185 0.004 260);
 	--bg-sidebar: oklch(0.16 0.004 260);
 	--bg-raised: oklch(0.225 0.005 260);
 	--bg-inset: oklch(0.155 0.004 260);
 	--bg-overlay: oklch(0.245 0.005 260);
+	--bg-card: oklch(0.215 0.005 260);
+	--bg-composer: oklch(0.22 0.005 260);
 	--bg-hover: oklch(1 0 0 / 5%);
 	--bg-active: oklch(1 0 0 / 8%);
 
+	/* 文本层级 */
 	--fg: oklch(0.94 0.003 260);
 	--fg-muted: oklch(0.72 0.006 260);
 	--fg-faint: oklch(0.55 0.008 260);
 
+	/* 强调色与状态色 */
 	--accent: oklch(0.72 0.12 245);
 	--accent-fg: oklch(0.18 0.03 245);
 	--accent-muted: oklch(0.72 0.12 245 / 18%);
 
-	/* 主按钮：前景/背景反相 */
 	--btn-primary-bg: oklch(0.94 0.003 260);
 	--btn-primary-fg: oklch(0.2 0.004 260);
 
@@ -28,22 +33,45 @@
 	--warn: oklch(0.8 0.13 85);
 	--err: oklch(0.68 0.18 25);
 
+	/* 边框与光晕 */
+	--border-subtle: oklch(1 0 0 / 5%);
 	--border: oklch(1 0 0 / 8%);
 	--border-strong: oklch(1 0 0 / 14%);
 	--ring: oklch(0.72 0.12 245 / 65%);
 
+	/* 用户提问气泡专属 */
+	--user-bubble-bg: oklch(0.245 0.008 260);
+	--user-bubble-border: oklch(1 0 0 / 11%);
+	--user-bubble-fg: oklch(0.96 0.003 260);
+
+	/* 字体体系 */
 	--font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Segoe UI", sans-serif;
 	--font-mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
 
-	--radius-sm: 4px;
-	--radius: 6px;
-	--radius-lg: 8px;
+	/* 圆角梯度 (Modern Radius scale) */
+	--radius-xs: 4px;
+	--radius-sm: 6px;
+	--radius: 8px;
+	--radius-md: 10px;
+	--radius-lg: 14px;
+	--radius-xl: 18px;
+	--radius-pill: 9999px;
 
-	--shadow-overlay: 0 16px 40px oklch(0 0 0 / 45%), 0 2px 8px oklch(0 0 0 / 30%);
-	--backdrop: oklch(0.1 0.004 260 / 55%);
+	/* 阴影景深系统 (Shadow & Elevation) */
+	--shadow-xs: 0 1px 2px oklch(0 0 0 / 15%);
+	--shadow-sm: 0 2px 4px oklch(0 0 0 / 20%), 0 1px 2px oklch(0 0 0 / 12%);
+	--shadow-md: 0 6px 16px -2px oklch(0 0 0 / 25%), 0 2px 6px -1px oklch(0 0 0 / 15%);
+	--shadow-lg: 0 12px 30px -4px oklch(0 0 0 / 30%), 0 4px 10px -2px oklch(0 0 0 / 20%);
+	--shadow-float: 0 16px 40px -6px oklch(0 0 0 / 45%), 0 4px 12px -2px oklch(0 0 0 / 25%);
+	--shadow-overlay: 0 20px 48px oklch(0 0 0 / 50%), 0 4px 12px oklch(0 0 0 / 30%);
+
+	/* 悬浮输入框光影 */
+	--composer-border: oklch(1 0 0 / 12%);
+	--composer-shadow: 0 4px 20px -2px oklch(0 0 0 / 25%), 0 1px 4px -1px oklch(0 0 0 / 15%);
+	--backdrop: oklch(0.1 0.004 260 / 60%);
 
 	--sidebar-width: 272px;
-	--thread-width: 760px;
+	--thread-width: 780px;
 	--titlebar-height: 44px;
 }
 
@@ -56,6 +84,8 @@
 		--bg-raised: oklch(1 0 0);
 		--bg-inset: oklch(0.965 0.002 260);
 		--bg-overlay: oklch(1 0 0);
+		--bg-card: oklch(0.985 0.001 260);
+		--bg-composer: oklch(1 0 0);
 		--bg-hover: oklch(0 0 0 / 4%);
 		--bg-active: oklch(0 0 0 / 7%);
 
@@ -74,22 +104,39 @@
 		--warn: oklch(0.6 0.13 75);
 		--err: oklch(0.55 0.19 25);
 
+		--border-subtle: oklch(0 0 0 / 5%);
 		--border: oklch(0 0 0 / 9%);
 		--border-strong: oklch(0 0 0 / 15%);
 		--ring: oklch(0.55 0.15 250 / 55%);
 
-		--shadow-overlay: 0 16px 40px oklch(0 0 0 / 12%), 0 2px 8px oklch(0 0 0 / 8%);
+		--user-bubble-bg: oklch(0.955 0.004 260);
+		--user-bubble-border: oklch(0 0 0 / 8%);
+		--user-bubble-fg: oklch(0.18 0.004 260);
+
+		--shadow-xs: 0 1px 2px oklch(0 0 0 / 4%);
+		--shadow-sm: 0 2px 4px oklch(0 0 0 / 5%), 0 1px 2px oklch(0 0 0 / 3%);
+		--shadow-md: 0 6px 16px -2px oklch(0 0 0 / 7%), 0 2px 6px -1px oklch(0 0 0 / 4%);
+		--shadow-lg: 0 12px 30px -4px oklch(0 0 0 / 9%), 0 4px 10px -2px oklch(0 0 0 / 5%);
+		--shadow-float: 0 16px 40px -6px oklch(0 0 0 / 12%), 0 4px 12px -2px oklch(0 0 0 / 6%);
+		--shadow-overlay: 0 20px 48px oklch(0 0 0 / 14%), 0 4px 12px oklch(0 0 0 / 8%);
+
+		--composer-border: oklch(0 0 0 / 12%);
+		--composer-shadow: 0 4px 20px -2px oklch(0 0 0 / 6%), 0 1px 3px 0 oklch(0 0 0 / 4%);
 		--backdrop: oklch(0.4 0.004 260 / 25%);
 	}
 }
 
-/* Claude 主题：暖灰底色与陶土橙强调色，明暗仍跟随系统。 */
+/* ==========================================================================
+   主题 1：Claude 暖陶 (Anthropic Warm)
+   ========================================================================== */
 :root[data-theme="claude"] {
 	--bg: oklch(0.262 0.003 106);
 	--bg-sidebar: oklch(0.228 0.002 67);
 	--bg-raised: oklch(0.3 0.003 106);
 	--bg-inset: oklch(0.228 0.002 67);
 	--bg-overlay: oklch(0.31 0.003 106);
+	--bg-card: oklch(0.285 0.003 106);
+	--bg-composer: oklch(0.295 0.003 106);
 	--bg-hover: oklch(0.98 0.005 95 / 5%);
 	--bg-active: oklch(0.98 0.005 95 / 9%);
 
@@ -103,9 +150,18 @@
 	--btn-primary-bg: oklch(0.67 0.13 39);
 	--btn-primary-fg: oklch(0.99 0.004 95);
 
+	--border-subtle: oklch(0.98 0.005 95 / 5%);
 	--border: oklch(0.98 0.005 95 / 9%);
 	--border-strong: oklch(0.98 0.005 95 / 15%);
 	--ring: oklch(0.67 0.13 39 / 60%);
+
+	--user-bubble-bg: oklch(0.315 0.005 106);
+	--user-bubble-border: oklch(0.98 0.005 95 / 12%);
+	--user-bubble-fg: oklch(0.98 0.004 95);
+
+	--composer-border: oklch(0.98 0.005 95 / 13%);
+	--composer-shadow: 0 4px 20px -2px oklch(0 0 0 / 25%);
+
 	--backdrop: oklch(0.12 0.003 67 / 55%);
 }
 
@@ -116,6 +172,8 @@
 		--bg-raised: oklch(1 0 0);
 		--bg-inset: oklch(0.948 0.01 95);
 		--bg-overlay: oklch(1 0 0);
+		--bg-card: oklch(0.975 0.006 95);
+		--bg-composer: oklch(1 0 0);
 		--bg-hover: oklch(0.19 0.002 106 / 4%);
 		--bg-active: oklch(0.19 0.002 106 / 8%);
 
@@ -129,9 +187,172 @@
 		--btn-primary-bg: oklch(0.6 0.14 40);
 		--btn-primary-fg: oklch(0.99 0.004 95);
 
+		--border-subtle: oklch(0.19 0.002 106 / 5%);
 		--border: oklch(0.19 0.002 106 / 9%);
 		--border-strong: oklch(0.19 0.002 106 / 15%);
 		--ring: oklch(0.6 0.14 40 / 55%);
+
+		--user-bubble-bg: oklch(0.95 0.008 95);
+		--user-bubble-border: oklch(0.19 0.002 106 / 9%);
+		--user-bubble-fg: oklch(0.18 0.002 106);
+
+		--composer-border: oklch(0.19 0.002 106 / 12%);
+		--composer-shadow: 0 4px 20px -2px oklch(0.19 0.002 106 / 6%);
+
 		--backdrop: oklch(0.3 0.003 106 / 25%);
+	}
+}
+
+/* ==========================================================================
+   主题 2：Tokyo Night (赛博冷调深紫蓝)
+   ========================================================================== */
+:root[data-theme="tokyo-night"] {
+	--bg: oklch(0.215 0.038 275);
+	--bg-sidebar: oklch(0.185 0.032 275);
+	--bg-raised: oklch(0.26 0.045 275);
+	--bg-inset: oklch(0.18 0.032 275);
+	--bg-overlay: oklch(0.29 0.048 275);
+	--bg-card: oklch(0.245 0.042 275);
+	--bg-composer: oklch(0.255 0.044 275);
+	--bg-hover: oklch(0.7 0.12 275 / 8%);
+	--bg-active: oklch(0.7 0.12 275 / 14%);
+
+	--fg: oklch(0.93 0.015 265);
+	--fg-muted: oklch(0.74 0.03 265);
+	--fg-faint: oklch(0.56 0.035 265);
+
+	--accent: oklch(0.72 0.15 260);
+	--accent-fg: oklch(0.18 0.04 275);
+	--accent-muted: oklch(0.72 0.15 260 / 22%);
+	--btn-primary-bg: oklch(0.72 0.15 260);
+	--btn-primary-fg: oklch(0.16 0.03 275);
+
+	--border-subtle: oklch(0.72 0.06 275 / 8%);
+	--border: oklch(0.72 0.06 275 / 13%);
+	--border-strong: oklch(0.72 0.08 275 / 20%);
+	--ring: oklch(0.72 0.15 260 / 65%);
+
+	--user-bubble-bg: oklch(0.275 0.048 275);
+	--user-bubble-border: oklch(0.72 0.08 275 / 18%);
+	--user-bubble-fg: oklch(0.95 0.015 265);
+
+	--composer-border: oklch(0.72 0.08 275 / 20%);
+	--composer-shadow: 0 4px 20px -2px oklch(0.1 0.03 275 / 30%);
+
+	--backdrop: oklch(0.12 0.03 275 / 65%);
+}
+
+@media (prefers-color-scheme: light) {
+	:root[data-theme="tokyo-night"] {
+		--bg: oklch(0.975 0.008 265);
+		--bg-sidebar: oklch(0.945 0.012 265);
+		--bg-raised: oklch(1 0 0);
+		--bg-inset: oklch(0.935 0.012 265);
+		--bg-overlay: oklch(1 0 0);
+		--bg-card: oklch(0.965 0.01 265);
+		--bg-composer: oklch(1 0 0);
+		--bg-hover: oklch(0.5 0.1 260 / 5%);
+		--bg-active: oklch(0.5 0.1 260 / 9%);
+
+		--fg: oklch(0.25 0.03 270);
+		--fg-muted: oklch(0.46 0.03 270);
+		--fg-faint: oklch(0.62 0.025 270);
+
+		--accent: oklch(0.58 0.16 265);
+		--accent-fg: oklch(0.99 0 0);
+		--accent-muted: oklch(0.58 0.16 265 / 14%);
+		--btn-primary-bg: oklch(0.58 0.16 265);
+		--btn-primary-fg: oklch(0.99 0 0);
+
+		--border-subtle: oklch(0.5 0.05 270 / 6%);
+		--border: oklch(0.5 0.05 270 / 11%);
+		--border-strong: oklch(0.5 0.08 270 / 18%);
+		--ring: oklch(0.58 0.16 265 / 55%);
+
+		--user-bubble-bg: oklch(0.94 0.015 265);
+		--user-bubble-border: oklch(0.5 0.08 270 / 12%);
+		--user-bubble-fg: oklch(0.22 0.03 270);
+
+		--composer-border: oklch(0.5 0.08 270 / 14%);
+		--composer-shadow: 0 4px 20px -2px oklch(0.3 0.05 270 / 8%);
+
+		--backdrop: oklch(0.2 0.03 270 / 30%);
+	}
+}
+
+/* ==========================================================================
+   主题 3：Pure Black (OLED 纯黑高对比)
+   ========================================================================== */
+:root[data-theme="pure-black"] {
+	--bg: #000000;
+	--bg-sidebar: #09090b;
+	--bg-raised: #121216;
+	--bg-inset: #050507;
+	--bg-overlay: #18181d;
+	--bg-card: #111114;
+	--bg-composer: #131317;
+	--bg-hover: oklch(1 0 0 / 7%);
+	--bg-active: oklch(1 0 0 / 12%);
+
+	--fg: #fafafa;
+	--fg-muted: #a1a1aa;
+	--fg-faint: #71717a;
+
+	--accent: oklch(0.75 0.16 250);
+	--accent-fg: #000000;
+	--accent-muted: oklch(0.75 0.16 250 / 22%);
+	--btn-primary-bg: #ffffff;
+	--btn-primary-fg: #000000;
+
+	--border-subtle: oklch(1 0 0 / 7%);
+	--border: oklch(1 0 0 / 12%);
+	--border-strong: oklch(1 0 0 / 20%);
+	--ring: oklch(0.75 0.16 250 / 70%);
+
+	--user-bubble-bg: #18181f;
+	--user-bubble-border: oklch(1 0 0 / 15%);
+	--user-bubble-fg: #ffffff;
+
+	--composer-border: oklch(1 0 0 / 16%);
+	--composer-shadow: 0 4px 24px -2px oklch(0 0 0 / 60%);
+
+	--backdrop: oklch(0 0 0 / 75%);
+}
+
+@media (prefers-color-scheme: light) {
+	:root[data-theme="pure-black"] {
+		--bg: #ffffff;
+		--bg-sidebar: #f4f4f5;
+		--bg-raised: #ffffff;
+		--bg-inset: #f4f4f5;
+		--bg-overlay: #ffffff;
+		--bg-card: #fafafa;
+		--bg-composer: #ffffff;
+		--bg-hover: oklch(0 0 0 / 5%);
+		--bg-active: oklch(0 0 0 / 9%);
+
+		--fg: #09090b;
+		--fg-muted: #52525b;
+		--fg-faint: #71717a;
+
+		--accent: oklch(0.55 0.16 250);
+		--accent-fg: #ffffff;
+		--accent-muted: oklch(0.55 0.16 250 / 14%);
+		--btn-primary-bg: #09090b;
+		--btn-primary-fg: #ffffff;
+
+		--border-subtle: oklch(0 0 0 / 6%);
+		--border: oklch(0 0 0 / 12%);
+		--border-strong: oklch(0 0 0 / 20%);
+		--ring: oklch(0.55 0.16 250 / 60%);
+
+		--user-bubble-bg: #f4f4f5;
+		--user-bubble-border: oklch(0 0 0 / 11%);
+		--user-bubble-fg: #09090b;
+
+		--composer-border: oklch(0 0 0 / 14%);
+		--composer-shadow: 0 4px 20px -2px oklch(0 0 0 / 8%);
+
+		--backdrop: oklch(0 0 0 / 30%);
 	}
 }

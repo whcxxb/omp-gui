@@ -5,7 +5,8 @@ import "./collab/components/transcript/transcript.css";
 import "./styles/app.css";
 import { App } from "./App";
 import { applyTheme, loadTheme } from "./lib/theme";
+import { initHighlighter } from "./lib/highlighter";
 
 applyTheme(loadTheme());
-
+void initHighlighter();
 createRoot(document.getElementById("root")!).render(<App />);
