@@ -70,6 +70,8 @@ export function RightPanel({ thread, onInsertText }: RightPanelProps): ReactNode
 	const onMouseDownResizer = (e: MouseEvent): void => {
 		e.preventDefault();
 		setIsDragging(true);
+		document.body.style.cursor = "col-resize";
+		document.body.style.userSelect = "none";
 
 		const startX = e.clientX;
 		const startWidth = width;
@@ -82,10 +84,11 @@ export function RightPanel({ thread, onInsertText }: RightPanelProps): ReactNode
 
 		const onMouseUp = (): void => {
 			setIsDragging(false);
+			document.body.style.cursor = "";
+			document.body.style.userSelect = "";
 			window.removeEventListener("mousemove", onMouseMove);
 			window.removeEventListener("mouseup", onMouseUp);
 		};
-
 		window.addEventListener("mousemove", onMouseMove);
 		window.addEventListener("mouseup", onMouseUp);
 	};

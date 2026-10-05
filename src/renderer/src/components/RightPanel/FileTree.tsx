@@ -250,10 +250,16 @@ export function FileTree({ cwd, onInsertText }: FileTreeProps): ReactNode {
 					</div>
 				</div>
 
-				{isDir && node.expanded && node.children && (
-					<div className="tree-children">
-						{node.children.map(child => renderNode(child, depth + 1))}
-					</div>
+				{isDir && node.expanded && (
+					node.loading ? (
+						<div className="tree-loading-row" style={{ paddingLeft: `${(depth + 1) * 14 + 10}px` }}>
+							<span className="th-shimmer">正在加载子目录…</span>
+						</div>
+					) : node.children ? (
+						<div className="tree-children">
+							{node.children.map(child => renderNode(child, depth + 1))}
+						</div>
+					) : null
 				)}
 			</div>
 		);

@@ -8,6 +8,7 @@ import { RightPanel } from "./components/RightPanel";
 import { CommandPalette } from "./components/CommandPalette";
 import { SettingsModal } from "./components/SettingsModal";
 import { UiRequestCard } from "./components/UiRequestCard";
+import { ThreadSkeleton } from "./components/ThreadSkeleton";
 import { exportThreadToMarkdown } from "./lib/export";
 import { playSound } from "./lib/sound";
 import { applyTheme, loadTheme } from "./lib/theme";
@@ -29,6 +30,39 @@ import type { Thread } from "./state/types";
 
 const DEFAULT_SIDEBAR_WIDTH = 272;
 const SIDEBAR_WIDTH_KEY = "omp-gui.sidebar-width";
+const PROJECTS_CACHE_KEY = "omp-gui.projects-cache";
+const LAST_SESSION_KEY = "omp_gui_last_session";
+
+interface LastSessionInfo {
+	cwd: string;
+	sessionFile?: string;
+}
+
+function loadLastSession(): LastSessionInfo | null {
+	try {
+		const raw = localStorage.getItem(LAST_SESSION_KEY);
+		return raw ? JSON.parse(raw) : null;
+	} catch {
+		return null;
+	}
+}
+
+function saveLastSession(info: LastSessionInfo | null): void {
+	try {
+		if (info) localStorage.setItem(LAST_SESSION_KEY, JSON.stringify(info));
+		else localStorage.removeItem(LAST_SESSION_KEY);
+	} catch {}
+}
+
+
+function loadCachedProjects(): ProjectSummary[] {
+	try {
+		const saved = localStorage.getItem(PROJECTS_CACHE_KEY);
+		return saved ? JSON.parse(saved) : [];
+	} catch {
+		return [];
+	}
+}
 
 function loadSidebarWidth(): number {
 	const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
@@ -38,7 +72,7 @@ function loadSidebarWidth(): number {
 
 export function App(): ReactNode {
 	const threads = useThreads();
-	const [projects, setProjects] = useState<ProjectSummary[]>([]);
+	const [projects, setProjects] = useState<ProjectSummary[]>(loadCachedProjects);
 	const [activeKey, setActiveKey] = useState<string | null>(null);
 	const [currentProject, setCurrentProject] = useState<string | null>(null);
 	const [ompVersion, setOmpVersion] = useState<string | null>(null);
@@ -58,7 +92,12 @@ export function App(): ReactNode {
 	};
 
 	const refreshProjects = useCallback(() => {
-		void window.omp.listProjects().then(setProjects);
+		void window.omp.listProjects().then(list => {
+			setProjects(list);
+			try {
+				localStorage.setItem(PROJECTS_CACHE_KEY, JSON.stringify(list));
+			} catch {}
+		});
 	}, []);
 
 	useEffect(() => {
@@ -85,20 +124,64 @@ export function App(): ReactNode {
 
 	const active = threads.find(t => t.key === activeKey) ?? null;
 	const activeProject = active?.cwd ?? currentProject ?? projects[0]?.path ?? null;
-
-	const newThread = (cwd: string): void => {
+	const newThread = useCallback((cwd: string): void => {
 		playSound("switch");
 		setCurrentProject(cwd);
 		// 复用当前项目里尚未发送过消息的空对话
 		const blank = threads.find(t => t.cwd === cwd && t.entries.length === 0 && !t.sessionFile && t.status !== "exited");
 		setActiveKey(blank ? blank.key : createThread(cwd));
-	};
+	}, [threads]);
 
-	const openSession = (session: SessionSummary): void => {
+	const openSession = useCallback((session: SessionSummary): void => {
 		playSound("switch");
 		setCurrentProject(session.cwd);
 		setActiveKey(openThread(session.cwd, session.file));
-	};
+	}, []);
+
+	// 启动时自动恢复上一次打开的对话（或最新项目最新会话）
+	const restoredRef = useRef(false);
+	useEffect(() => {
+		if (restoredRef.current) return;
+		if (projects.length === 0) return;
+		restoredRef.current = true;
+
+		const last = loadLastSession();
+		if (last?.cwd) {
+			const targetProj = projects.find(p => p.path === last.cwd);
+			if (targetProj) {
+				if (last.sessionFile) {
+					const targetSession = targetProj.sessions.find(s => s.file === last.sessionFile);
+					if (targetSession) {
+						openSession(targetSession);
+						return;
+					}
+				}
+				if (targetProj.sessions.length > 0) {
+					openSession(targetProj.sessions[0]);
+					return;
+				}
+				newThread(targetProj.path);
+				return;
+			}
+		}
+
+		// 如果没有记住的会话，默认打开第一个项目的最新会话
+		const firstProj = projects[0];
+		if (firstProj.sessions.length > 0) {
+			openSession(firstProj.sessions[0]);
+		} else {
+			newThread(firstProj.path);
+		}
+	}, [projects, newThread, openSession]);
+
+	// 每当切换激活的对话或会话文件就绪时，持久化记录
+	useEffect(() => {
+		if (!active) return;
+		saveLastSession({
+			cwd: active.cwd,
+			sessionFile: active.sessionFile ?? active.state?.sessionFile,
+		});
+	}, [active, active?.sessionFile, active?.state?.sessionFile]);
 
 	const selectThread = (key: string): void => {
 		const thread = threads.find(t => t.key === key);
@@ -329,7 +412,8 @@ function ThreadPane({
 	onToggleSidebar(): void;
 }): ReactNode {
 	const title = thread.state?.sessionName || firstPrompt(thread) || (thread.entries.length === 0 ? "新对话" : "未���名对话");
-	const empty = thread.entries.length === 0 && !thread.stream && !thread.working;
+	const isLoadingSession = Boolean(thread.sessionFile && thread.entries.length === 0 && thread.status === "starting");
+	const empty = !isLoadingSession && thread.entries.length === 0 && !thread.stream && !thread.working;
 	const projectName = thread.cwd.split("/").filter(Boolean).at(-1) ?? thread.cwd;
 	const [isEditingTitle, setIsEditingTitle] = useState(false);
 	const [editTitleValue, setEditTitleValue] = useState("");
@@ -442,7 +526,9 @@ function ThreadPane({
 				</div>
 			)}
 
-			{empty ? (
+			{isLoadingSession ? (
+				<ThreadSkeleton />
+			) : empty ? (
 				<div className="hero">
 					<div className="hero-emblem">
 						<Sparkles size={15} />

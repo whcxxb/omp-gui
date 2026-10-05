@@ -732,7 +732,9 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 				onEdit={handleEditQueued}
 			/>
 			<div
-			className={`cp${isDragging ? " is-dragging" : ""}`}
+				className={`cp${isDragging ? " is-dragging" : ""}${
+					thread.executionMode === "plan" ? " is-mode-plan" : thread.executionMode === "ask" ? " is-mode-ask" : ""
+				}`}
 			onDragEnter={onDragEnter}
 			onDragLeave={onDragLeave}
 			onDragOver={onDragOver}

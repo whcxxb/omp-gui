@@ -1,4 +1,4 @@
-import { Brain, Check, ChevronRight, Copy, CornerDownLeft, GitFork, GripVertical, Quote } from "lucide-react";
+import { ArrowDown, Brain, Check, ChevronRight, Copy, CornerDownLeft, GitFork, GripVertical, Quote } from "lucide-react";
 import { memo, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { ActiveTool } from "@/collab/lib/client";
 import { Markdown } from "./Markdown";
@@ -55,15 +55,17 @@ function ThinkingBlock({ text, redacted, live }: { text: string; redacted?: bool
 				<span className={`th-think-label${live ? " th-shimmer" : ""}`}>{label}</span>
 				<ChevronRight size={12} className={`th-chev${open ? " is-open" : ""}`} />
 			</button>
-			{open && (
-				<div className="th-think-body">
-					{redacted ? (
-						<div className="th-think-redacted">模型提供方未返回思考内容</div>
-					) : (
-						<pre className="th-think-text">{text}</pre>
-					)}
+			<div className="th-think-wrapper">
+				<div className="th-think-body-inner">
+					<div className="th-think-body">
+						{redacted ? (
+							<div className="th-think-redacted">模型提供方未返回思考内容</div>
+						) : (
+							<pre className="th-think-text">{text}</pre>
+						)}
+					</div>
 				</div>
-			)}
+			</div>
 		</div>
 	);
 }
@@ -420,10 +422,10 @@ const EntryRow = memo(function EntryRow({
 export function ThreadView({ thread }: { thread: Thread }): ReactNode {
 	const { entries, stream, activeTools, working } = thread;
 	const [start, setStart] = useState<number | null>(null);
+	const [showScrollBottom, setShowScrollBottom] = useState(false);
 	const tailStart = Math.max(0, entries.length - WINDOW);
 	const from = start === null ? tailStart : Math.min(start, tailStart);
 	const visible = useMemo(() => entries.slice(from), [entries, from]);
-
 	const results = useMemo(() => {
 		const map = new Map<string, ToolResultMessage>();
 		for (const entry of entries) {
@@ -459,7 +461,9 @@ export function ThreadView({ thread }: { thread: Thread }): ReactNode {
 	const onScroll = (): void => {
 		const el = scrollRef.current;
 		if (!el) return;
-		followRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < FOLLOW_THRESHOLD_PX;
+		const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+		followRef.current = distanceFromBottom < FOLLOW_THRESHOLD_PX;
+		setShowScrollBottom(distanceFromBottom > 160);
 		if (el.scrollTop < 200 && from > 0) {
 			const prevHeight = el.scrollHeight;
 			setStart(Math.max(0, from - WINDOW));
@@ -469,42 +473,62 @@ export function ThreadView({ thread }: { thread: Thread }): ReactNode {
 		}
 	};
 
+	const scrollToBottom = (): void => {
+		const el = scrollRef.current;
+		if (!el) return;
+		followRef.current = true;
+		el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+	};
+
 	return (
-		<div className="th-scroll" ref={scrollRef} onScroll={onScroll}>
-			<div className="th-column">
-				{from > 0 && <div className="th-earlier">向上滚动加载更早的 {from} 条记录</div>}
-				{visible.map(entry => (
-					<EntryRow key={entry.id} threadKey={thread.key} entry={entry} results={results} active={activeTools} />
-				))}
-				{stream && <AssistantBody threadKey={thread.key} message={stream} results={results} active={activeTools} pending />}
-				{tailTools.length > 0 && (
-					<div className="th-assistant">
-						{tailTools.map(tool => (
-							<ToolView
-								key={tool.toolCallId}
-								name={tool.toolName}
-								args={tool.args}
-								intent={tool.intent}
-								running
-								partial={
-									tool.partialResult === undefined
-										? undefined
-										: typeof tool.partialResult === "string"
-											? tool.partialResult
-											: messageText(tool.partialResult)
-								}
-							/>
-						))}
-					</div>
-				)}
-				{working && !stream && activeTools.size === 0 && (
-					<div className="th-working-pill">
-						<Brain size={14} className="th-working-icon is-pulsing" />
-						<span className="th-shimmer">正在思考与构思...</span>
-					</div>
-				)}
-				<TodoHud thread={thread} />
+		<div className="th-scroll-wrap">
+			<div className="th-scroll" ref={scrollRef} onScroll={onScroll}>
+				<div className="th-column">
+					{from > 0 && <div className="th-earlier">向上滚动加载更早的 {from} 条记录</div>}
+					{visible.map(entry => (
+						<EntryRow key={entry.id} threadKey={thread.key} entry={entry} results={results} active={activeTools} />
+					))}
+					{stream && <AssistantBody threadKey={thread.key} message={stream} results={results} active={activeTools} pending />}
+					{tailTools.length > 0 && (
+						<div className="th-assistant">
+							{tailTools.map(tool => (
+								<ToolView
+									key={tool.toolCallId}
+									name={tool.toolName}
+									args={tool.args}
+									intent={tool.intent}
+									running
+									partial={
+										tool.partialResult === undefined
+											? undefined
+											: typeof tool.partialResult === "string"
+												? tool.partialResult
+												: messageText(tool.partialResult)
+									}
+								/>
+							))}
+						</div>
+					)}
+					{working && !stream && activeTools.size === 0 && (
+						<div className="th-working-pill">
+							<Brain size={14} className="th-working-icon is-pulsing" />
+							<span className="th-shimmer">正在思考与构思...</span>
+						</div>
+					)}
+					<TodoHud thread={thread} />
+				</div>
 			</div>
+			{showScrollBottom && (
+				<button
+					type="button"
+					className="th-scroll-fab"
+					title="回到底部"
+					onClick={scrollToBottom}
+				>
+					<ArrowDown size={15} />
+					{(working || stream) && <span className="th-fab-dot" />}
+				</button>
+			)}
 		</div>
 	);
 }

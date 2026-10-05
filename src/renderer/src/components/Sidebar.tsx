@@ -5,6 +5,7 @@ import { relativeTime, shortPath } from "@/lib/time";
 import type { Thread } from "@/state/types";
 
 const COLLAPSED_LIMIT = 6;
+const UNCOLLAPSED_PROJECTS_KEY = "omp_gui_uncollapsed_projects";
 const PINNED_STORAGE_KEY = "omp_gui_pinned_sessions";
 const ARCHIVED_STORAGE_KEY = "omp_gui_archived_sessions";
 
@@ -119,7 +120,15 @@ export function Sidebar(props: SidebarProps): ReactNode {
 		}
 	};
 
-	const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+	// 默认全部折叠，仅展开用户明确展开过的项目
+	const [uncollapsed, setUncollapsed] = useState<Set<string>>(() => {
+		try {
+			const raw = localStorage.getItem(UNCOLLAPSED_PROJECTS_KEY);
+			return raw ? new Set(JSON.parse(raw) as string[]) : new Set();
+		} catch {
+			return new Set();
+		}
+	});
 	const [expanded, setExpanded] = useState<Set<string>>(new Set());
 	const [pinnedKeys, setPinnedKeys] = useState<Set<string>>(() => {
 		try {
@@ -439,7 +448,8 @@ export function Sidebar(props: SidebarProps): ReactNode {
 					</div>
 				)}
 				{projects.map(project => {
-					const isCollapsed = collapsed.has(project.path);
+					// 默认全部折叠；激活对话所在的项目或用户手动展开过的项目保持展开
+					const isCollapsed = project.path !== activeProject && !uncollapsed.has(project.path);
 					const allItems = projectThreadItems.get(project.path) ?? [];
 					const pinnedItems = allItems.filter(item => pinnedKeys.has(item.key));
 					const archivedItems = allItems.filter(item => archivedKeys.has(item.key));
@@ -455,7 +465,15 @@ export function Sidebar(props: SidebarProps): ReactNode {
 									type="button"
 									className="sb-project-toggle"
 									title={shortPath(project.path)}
-									onClick={() => setCollapsed(s => toggle(s, project.path))}
+									onClick={() => {
+										setUncollapsed(s => {
+											const next = toggle(s, project.path);
+											try {
+												localStorage.setItem(UNCOLLAPSED_PROJECTS_KEY, JSON.stringify([...next]));
+											} catch {}
+											return next;
+										});
+									}}
 								>
 									<ChevronRight size={12} className={`sb-chev${isCollapsed ? "" : " is-open"}`} />
 									<Folder size={14} />

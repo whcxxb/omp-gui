@@ -4,6 +4,7 @@ import {
 	ChevronDown,
 	ChevronRight,
 	Clock,
+	Compass,
 	ExternalLink,
 	Eye,
 	FileCode,
@@ -11,11 +12,15 @@ import {
 	GitBranch,
 	GitCommit,
 	History,
+	Layers,
+	ListFilter,
 	RefreshCw,
+	Sparkles,
 	User,
 } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import type { GitChangedFile, GitCommitDetail, GitCommitSummary, GitStatusResult } from "@shared/ipc";
+import { categorizeFilePath, DIFF_CATEGORIES, type DiffCategory } from "@/lib/diff-categorizer";
 import { DiffView } from "./DiffView";
 
 interface GitPanelProps {
@@ -27,7 +32,7 @@ export function GitPanel({ cwd, onInsertText }: GitPanelProps): ReactNode {
 	const [status, setStatus] = useState<GitStatusResult | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [activeSubTab, setActiveSubTab] = useState<"changes" | "commits">("changes");
-
+	const [groupByScope, setGroupByScope] = useState(false);
 	// 变更 Tab 状态
 	const [selectedFile, setSelectedFile] = useState<{ file: string; staged: boolean } | null>(null);
 	const [diffContent, setDiffContent] = useState<string | null>(null);
@@ -35,7 +40,7 @@ export function GitPanel({ cwd, onInsertText }: GitPanelProps): ReactNode {
 	const [stagedOpen, setStagedOpen] = useState(true);
 	const [unstagedOpen, setUnstagedOpen] = useState(true);
 	const [untrackedOpen, setUntrackedOpen] = useState(true);
-
+	const [scopeOpenMap, setScopeOpenMap] = useState<Record<string, boolean>>({});
 	// 提交历史 Tab 状态
 	const [commits, setCommits] = useState<GitCommitSummary[]>([]);
 	const [commitsLoading, setCommitsLoading] = useState(false);
@@ -150,6 +155,40 @@ export function GitPanel({ cwd, onInsertText }: GitPanelProps): ReactNode {
 		}
 	};
 
+	const allChanges = useMemo(() => {
+		if (!status) return [];
+		const list: Array<GitChangedFile & { staged: boolean; category: DiffCategory }> = [];
+		for (const f of status.stagedFiles) {
+			list.push({ ...f, staged: true, category: categorizeFilePath(f.path) });
+		}
+		for (const f of status.unstagedFiles) {
+			list.push({ ...f, staged: false, category: categorizeFilePath(f.path) });
+		}
+		for (const f of status.untrackedFiles) {
+			list.push({ ...f, staged: false, category: categorizeFilePath(f.path) });
+		}
+		return list;
+	}, [status]);
+
+	const scopeGroups = useMemo(() => {
+		const map = new Map<DiffCategory, Array<GitChangedFile & { staged: boolean }>>();
+		for (const item of allChanges) {
+			const arr = map.get(item.category) ?? [];
+			arr.push(item);
+			map.set(item.category, arr);
+		}
+		return Array.from(map.entries()).sort((a, b) => b[1].length - a[1].length);
+	}, [allChanges]);
+
+	const handleAskAiScopeReview = (): void => {
+		if (!onInsertText || allChanges.length === 0) return;
+		const scopesSummary = scopeGroups
+			.map(([cat, files]) => `- ${DIFF_CATEGORIES[cat].label} (${DIFF_CATEGORIES[cat].shortLabel}): ${files.length} 个文件 (${files.map(f => f.path).slice(0, 3).join(", ")}${files.length > 3 ? " 等" : ""})`)
+			.join("\n");
+		const prompt = `请参考 pulls.review / Linear PR Guides 风格，对当前工作区的 ${allChanges.length} 处变更进行分层审查指导：\n\n### 变更范畴分布：\n${scopesSummary}\n\n请按 Scope 梳理各模块的变更意图、架构影响、潜在隐患与测试要点。`;
+		onInsertText(prompt);
+	};
+
 	if (!status?.isGitRepo) {
 		return (
 			<div className="rp-empty">
@@ -196,10 +235,23 @@ export function GitPanel({ cwd, onInsertText }: GitPanelProps): ReactNode {
 										{item.displayStatus === "untracked" && "U"}
 									</span>
 
+									{(() => {
+										const cat = categorizeFilePath(item.path);
+										const meta = DIFF_CATEGORIES[cat];
+										return (
+											<span
+												className="git-scope-pill"
+												style={{ color: meta.color, background: meta.bgColor, borderColor: meta.borderColor }}
+												title={`${meta.label}: ${meta.description}`}
+											>
+												{meta.shortLabel}
+											</span>
+										);
+									})()}
+
 									<span className="git-file-name" title={item.path}>
 										{item.path}
 									</span>
-
 									<div className="git-file-actions">
 										<button
 											type="button"
@@ -269,22 +321,44 @@ export function GitPanel({ cwd, onInsertText }: GitPanelProps): ReactNode {
 							void refreshCommits();
 						}}
 					>
-						<History size={12} />
+						<History size={11} />
 						<span>历史</span>
 					</button>
 				</div>
 
-				<button
-					type="button"
-					className={`rp-icon-btn${loading || commitsLoading ? " is-spinning" : ""}`}
-					title="刷新"
-					onClick={() => {
-						void refreshStatus();
-						if (activeSubTab === "commits") void refreshCommits();
-					}}
-				>
-					<RefreshCw size={12} />
-				</button>
+				<div className="git-top-actions">
+					{activeSubTab === "changes" && status.totalChanges > 0 && (
+						<button
+							type="button"
+							className={`rp-icon-btn${groupByScope ? " is-active" : ""}`}
+							title={groupByScope ? "当前: 按 Scope 分类分组 (点击切回平铺)" : "按 Scope 智能分类分组 (pulls.review)"}
+							onClick={() => setGroupByScope(v => !v)}
+						>
+							<Layers size={13} />
+						</button>
+					)}
+					{status.totalChanges > 0 && (
+						<button
+							type="button"
+							className="rp-icon-btn"
+							title="基于 pulls.review 规则让 AI 分析当前变更架构与审查要点"
+							onClick={handleAskAiScopeReview}
+						>
+							<Sparkles size={13} />
+						</button>
+					)}
+					<button
+						type="button"
+						className={`rp-icon-btn${loading || commitsLoading ? " is-spinning" : ""}`}
+						title="刷新"
+						onClick={() => {
+							void refreshStatus();
+							if (activeSubTab === "commits") void refreshCommits();
+						}}
+					>
+						<RefreshCw size={12} />
+					</button>
+				</div>
 			</div>
 
 			<div className="git-content">
@@ -295,6 +369,84 @@ export function GitPanel({ cwd, onInsertText }: GitPanelProps): ReactNode {
 								<CheckCircle size={28} className="rp-empty-icon is-clean" />
 								<div className="rp-empty-title">工作区已是最新状态</div>
 								<div className="rp-empty-desc">没有未提交的代码改动</div>
+							</div>
+						) : groupByScope ? (
+							<div className="git-groups-scroll">
+								{scopeGroups.map(([cat, files]) => {
+									const meta = DIFF_CATEGORIES[cat];
+									const isOpen = scopeOpenMap[cat] ?? true;
+									return (
+										<div key={cat} className="git-group">
+											<button
+												type="button"
+												className="git-group-header"
+												onClick={() => setScopeOpenMap(prev => ({ ...prev, [cat]: !isOpen }))}
+											>
+												<div className="git-group-left">
+													{isOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+													<span
+														className="git-scope-pill"
+														style={{ color: meta.color, background: meta.bgColor, borderColor: meta.borderColor }}
+													>
+														{meta.shortLabel}
+													</span>
+													<span className="git-group-title">{meta.label}</span>
+												</div>
+												<span className="git-group-count">{files.length}</span>
+											</button>
+											{isOpen && (
+												<div className="git-files-list">
+													{files.map(item => {
+														const isSelected = selectedFile?.file === item.path && selectedFile?.staged === item.staged;
+														return (
+															<div
+																key={`${item.path}-${item.staged}`}
+																className={`git-file-row${isSelected ? " is-selected" : ""}`}
+																onClick={() => void handleSelectFile(item.path, item.staged)}
+															>
+																<span className={`git-status-badge is-${item.displayStatus}`} title={item.displayStatus}>
+																	{item.staged ? "S" : item.displayStatus === "untracked" ? "U" : "M"}
+																</span>
+																<span className="git-file-name" title={item.path}>
+																	{item.path}
+																</span>
+																<div className="git-file-actions">
+																	<button
+																		type="button"
+																		className="git-action-btn"
+																		title="查看代码差异对比"
+																		onClick={e => {
+																			e.stopPropagation();
+																			void handleSelectFile(item.path, item.staged);
+																		}}
+																	>
+																		<Eye size={12} />
+																	</button>
+																	<button
+																		type="button"
+																		className="git-action-btn"
+																		title="在外部编辑器打开"
+																		onClick={e => void handleOpenEditor(e, item.path)}
+																	>
+																		<ExternalLink size={12} />
+																	</button>
+																	<button
+																		type="button"
+																		className="git-action-btn"
+																		title="在文件管理器中定位"
+																		onClick={e => handleReveal(e, item.path)}
+																	>
+																		<FolderOpen size={12} />
+																	</button>
+																</div>
+															</div>
+														);
+													})}
+												</div>
+											)}
+										</div>
+									);
+								})}
 							</div>
 						) : (
 							<div className="git-groups-scroll">

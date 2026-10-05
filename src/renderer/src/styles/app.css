@@ -1,5 +1,30 @@
 /* 应用外壳样式。只使用 tokens.css 中的变量。 */
 
+/* 全局现代极简半透明滚动条 (macOS 质感) */
+::-webkit-scrollbar {
+	width: 6px;
+	height: 6px;
+}
+
+::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+	background: var(--border-strong);
+	border-radius: var(--radius-pill);
+	transition: background-color 150ms ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+	background: var(--fg-faint);
+}
+
+* {
+	scrollbar-width: thin;
+	scrollbar-color: var(--border-strong) transparent;
+}
+
 .app {
 	display: grid;
 	grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
@@ -800,6 +825,10 @@
 	color: var(--fg);
 }
 
+.rp-icon-btn.is-active {
+	background: var(--bg-active);
+	color: var(--accent);
+}
 .rp-icon-btn.is-spinning svg {
 	animation: spin 1s linear infinite;
 }
@@ -999,31 +1028,45 @@
 .git-branch-info {
 	display: flex;
 	align-items: center;
-	gap: 6px;
+	gap: 5px;
 	font-size: 12px;
 	font-weight: 600;
 	color: var(--fg);
+	min-width: 0;
+	flex: 1 1 auto;
+}
+
+.git-branch-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	max-width: 80px;
 }
 
 .git-branch-icon {
 	color: var(--accent);
+	flex-shrink: 0;
 }
 
 .git-sync-badge {
-	padding: 1px 5px;
+	padding: 1px 4px;
 	border-radius: var(--radius-sm);
 	background: var(--bg-inset);
 	color: var(--fg-muted);
 	font-size: 10px;
 	font-family: var(--font-mono);
+	flex-shrink: 0;
 }
+
 .git-subtabs {
+	flex: none;
 	display: inline-flex;
 	align-items: center;
 	padding: 2px;
 	border-radius: var(--radius-sm);
 	background: var(--bg-inset);
 	border: 1px solid var(--border-subtle);
+	white-space: nowrap;
 }
 
 .git-subtab {
@@ -1039,13 +1082,21 @@
 	font-size: 11px;
 	font-weight: 500;
 	cursor: pointer;
+	white-space: nowrap;
+	flex-shrink: 0;
 	transition: background-color 100ms ease, color 100ms ease;
+}
+
+.git-top-actions {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	flex: none;
 }
 
 .git-subtab:hover {
 	color: var(--fg);
 }
-
 .git-subtab.is-active {
 	background: var(--bg-raised);
 	color: var(--fg);
@@ -1147,6 +1198,22 @@
 	font-family: var(--font-mono);
 	user-select: none;
 }
+.git-scope-pill {
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	height: 16px;
+	padding: 0 5px;
+	border-radius: var(--radius-xs);
+	border: 1px solid transparent;
+	font-size: 9.5px;
+	font-weight: 600;
+	font-family: var(--font-mono);
+	letter-spacing: 0.02em;
+	user-select: none;
+}
+
 
 .git-status-badge.is-modified {
 	background: oklch(0.8 0.15 85 / 15%);
@@ -2322,6 +2389,65 @@
 
 /* ---------- 对话流 ---------- */
 
+.th-scroll-wrap {
+	position: relative;
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+.th-scroll-fab {
+	position: absolute;
+	right: 28px;
+	bottom: 18px;
+	width: 36px;
+	height: 36px;
+	border-radius: var(--radius-pill);
+	background: var(--bg-overlay);
+	border: 1px solid var(--border-strong);
+	box-shadow: var(--shadow-md);
+	color: var(--fg);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	cursor: pointer;
+	z-index: 30;
+	backdrop-filter: blur(12px);
+	transition: all 160ms cubic-bezier(0.16, 1, 0.3, 1);
+	animation: fabPop 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.th-scroll-fab:hover {
+	transform: translateY(-2px);
+	background: var(--bg-raised);
+	border-color: var(--accent);
+	color: var(--accent);
+}
+
+.th-fab-dot {
+	position: absolute;
+	top: 3px;
+	right: 3px;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--accent);
+	box-shadow: 0 0 6px var(--accent);
+	animation: pulse 1.2s infinite;
+}
+
+@keyframes fabPop {
+	from {
+		opacity: 0;
+		transform: scale(0.85) translateY(6px);
+	}
+	to {
+		opacity: 1;
+		transform: scale(1) translateY(0);
+	}
+}
+
 .th-scroll {
 	flex: 1;
 	min-height: 0;
@@ -2343,6 +2469,86 @@
 	color: var(--fg-faint);
 	font-size: 12px;
 	text-align: center;
+}
+
+/* 骨架屏 */
+.th-skeleton-container {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	display: flex;
+	flex-direction: column;
+	width: 100%;
+	max-width: var(--thread-width);
+	margin: 0 auto;
+	padding: 24px 24px 32px;
+}
+
+.th-skeleton-pulse {
+	display: flex;
+	flex-direction: column;
+	gap: 24px;
+}
+
+.th-skeleton-user {
+	align-self: flex-end;
+	width: 58%;
+	background: var(--user-bubble-bg);
+	border: 1px solid var(--user-bubble-border);
+	border-radius: 18px 18px 4px 18px;
+	padding: 14px 18px;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	opacity: 0.75;
+}
+
+.th-skeleton-assistant {
+	align-self: flex-start;
+	width: 88%;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.th-skeleton-think-pill {
+	width: 140px;
+	height: 24px;
+	border-radius: var(--radius-pill);
+	background: var(--bg-raised);
+	border: 1px solid var(--border-subtle);
+	animation: pulse 1.6s ease-in-out infinite;
+}
+
+.th-skeleton-line {
+	height: 12px;
+	border-radius: var(--radius-xs);
+	background: var(--border-strong);
+	animation: pulse 1.6s ease-in-out infinite;
+}
+
+.th-skeleton-user-line1 { width: 90%; }
+.th-skeleton-user-line2 { width: 60%; }
+.th-skeleton-text-line1 { width: 96%; }
+.th-skeleton-text-line2 { width: 85%; }
+.th-skeleton-text-line3 { width: 72%; }
+.th-skeleton-text-line4 { width: 45%; }
+
+.th-skeleton-card {
+	width: 100%;
+	height: 72px;
+	border-radius: var(--radius-md);
+	background: var(--bg-card);
+	border: 1px solid var(--border);
+	animation: pulse 1.6s ease-in-out infinite;
+}
+
+.tree-loading-row {
+	display: flex;
+	align-items: center;
+	height: 24px;
+	font-size: 11.5px;
+	color: var(--fg-faint);
 }
 
 .th-user {
@@ -2443,24 +2649,31 @@
 .th-user-actions {
 	display: flex;
 	align-items: center;
-	gap: 3px;
+	gap: 4px;
+	padding: 2px 6px;
+	border-radius: var(--radius-pill);
+	background: var(--bg-raised);
+	border: 1px solid var(--border-subtle);
+	box-shadow: var(--shadow-xs);
 	opacity: 0;
-	transition: opacity 120ms ease;
+	transform: translateY(2px);
+	transition: opacity 140ms ease, transform 140ms ease;
 }
 
 .th-user-bubble:hover .th-user-actions {
 	opacity: 1;
+	transform: translateY(0);
 }
 
 .th-action-btn {
 	display: inline-flex;
 	align-items: center;
 	gap: 4px;
-	height: 20px;
-	padding: 0 5px;
+	height: 22px;
+	padding: 0 6px;
 	border: 0;
 	border-radius: var(--radius-xs);
-	background: var(--bg-hover);
+	background: transparent;
 	color: var(--fg-muted);
 	font-size: 11px;
 	cursor: pointer;
@@ -2468,7 +2681,7 @@
 }
 
 .th-action-btn:hover {
-	background: var(--bg-active);
+	background: var(--bg-hover);
 	color: var(--fg);
 }
 
@@ -2510,18 +2723,81 @@
 	font-size: 14px;
 	line-height: 1.7;
 }
+/* Markdown 排版细节精修 */
+.tr-md blockquote {
+	margin: 10px 0;
+	padding: 8px 14px;
+	border-left: 3px solid var(--accent);
+	border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+	background: var(--bg-inset);
+	color: var(--fg-muted);
+	font-size: 13.5px;
+	line-height: 1.65;
+}
+
+.tr-md table {
+	width: 100%;
+	margin: 12px 0;
+	border-collapse: separate;
+	border-spacing: 0;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-md);
+	overflow: hidden;
+	font-size: 13px;
+	line-height: 1.6;
+}
+
+.tr-md th {
+	background: var(--bg-raised);
+	padding: 8px 12px;
+	font-weight: 600;
+	color: var(--fg);
+	border-bottom: 1px solid var(--border-strong);
+	border-right: 1px solid var(--border-subtle);
+	text-align: left;
+}
+
+.tr-md th:last-child {
+	border-right: 0;
+}
+
+.tr-md td {
+	padding: 8px 12px;
+	border-bottom: 1px solid var(--border-subtle);
+	border-right: 1px solid var(--border-subtle);
+	color: var(--fg-muted);
+}
+
+.tr-md tr:last-child td {
+	border-bottom: 0;
+}
+
+.tr-md td:last-child {
+	border-right: 0;
+}
+
+.tr-md tr:nth-child(even) td {
+	background: var(--bg-hover);
+}
 
 .th-assistant-bar {
-	display: flex;
+	display: inline-flex;
 	align-items: center;
-	gap: 6px;
-	margin-top: 2px;
+	gap: 4px;
+	margin-top: 4px;
+	padding: 2px 6px;
+	border-radius: var(--radius-pill);
+	background: var(--bg-raised);
+	border: 1px solid var(--border-subtle);
+	box-shadow: var(--shadow-xs);
 	opacity: 0;
-	transition: opacity 140ms ease;
+	transform: translateY(2px);
+	transition: opacity 140ms ease, transform 140ms ease;
 }
 
 .th-assistant:hover .th-assistant-bar {
 	opacity: 1;
+	transform: translateY(0);
 }
 
 .th-think {
@@ -2534,6 +2810,20 @@
 	background: var(--bg-inset);
 	border: 1px solid var(--border-subtle);
 	padding: 8px 12px;
+}
+
+.th-think-wrapper {
+	display: grid;
+	grid-template-rows: 0fr;
+	transition: grid-template-rows 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.th-think.is-open .th-think-wrapper {
+	grid-template-rows: 1fr;
+}
+
+.th-think-body-inner {
+	overflow: hidden;
 }
 
 .th-think-head {
@@ -2870,6 +3160,26 @@
 	border-color: var(--accent);
 	box-shadow: 0 0 0 1px var(--accent);
 }
+.cp.is-mode-plan {
+	border-color: oklch(0.75 0.14 85 / 45%);
+	box-shadow: 0 0 0 1px oklch(0.75 0.14 85 / 20%), var(--composer-shadow);
+}
+
+.cp.is-mode-plan:focus-within {
+	border-color: oklch(0.8 0.16 85 / 70%);
+	box-shadow: 0 0 0 2px oklch(0.8 0.16 85 / 25%), var(--shadow-sm);
+}
+
+.cp.is-mode-ask {
+	border-color: oklch(0.72 0.14 200 / 45%);
+	box-shadow: 0 0 0 1px oklch(0.72 0.14 200 / 20%), var(--composer-shadow);
+}
+
+.cp.is-mode-ask:focus-within {
+	border-color: oklch(0.75 0.16 200 / 70%);
+	box-shadow: 0 0 0 2px oklch(0.75 0.16 200 / 25%), var(--shadow-sm);
+}
+
 
 .cp-drop-overlay {
 	position: absolute;
@@ -3005,6 +3315,7 @@
 	line-height: 1.55;
 	resize: none;
 	color: var(--fg);
+	transition: height 80ms ease-out;
 }
 
 .cp-input::placeholder {
@@ -5016,7 +5327,19 @@
 	border-radius: var(--radius);
 	background: var(--bg-inset);
 	box-shadow: 0 2px 8px oklch(0 0 0 / 12%);
-	animation: cmd-pop 120ms ease-out;
+	animation: qpSlideIn 180ms cubic-bezier(0.16, 1, 0.3, 1);
+	transition: all 140ms ease;
+}
+
+@keyframes qpSlideIn {
+	from {
+		opacity: 0;
+		transform: translateY(6px) scale(0.98);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
 }
 
 .qp-header {
@@ -5364,7 +5687,14 @@
 	overflow-x: auto;
 	background: var(--bg-inset);
 }
+.code-block-content {
+	animation: fadeIn 150ms ease-out;
+}
 
+@keyframes fadeIn {
+	from { opacity: 0; }
+	to { opacity: 1; }
+}
 .code-block-content pre.shiki {
 	margin: 0 !important;
 	padding: 12px 14px !important;

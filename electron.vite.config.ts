@@ -12,6 +12,9 @@ export default defineConfig({
 		build: { rollupOptions: { output: { format: "cjs", entryFileNames: "[name].cjs" } } },
 	},
 	renderer: {
+		server: {
+			port: 5180,
+		},
 		resolve: { alias: { "@shared": resolve("src/shared"), "@": resolve("src/renderer/src") } },
 		plugins: [react()],
 	},
