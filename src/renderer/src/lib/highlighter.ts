@@ -1,6 +1,6 @@
 import type { HighlighterCore, LanguageRegistration, ThemeRegistrationAny } from "shiki/core";
 import { createHighlighterCore } from "shiki/core";
-import { createOnigurumaEngine } from "shiki/engine/oniguruma";
+import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 import { loadTheme } from "./theme";
 
 export type Highlighter = HighlighterCore;
@@ -164,7 +164,7 @@ export async function initHighlighter(): Promise<Highlighter> {
 		const hl = await createHighlighterCore({
 			themes: [defaultDarkTheme.default, defaultLightTheme.default],
 			langs: [tsLang.default, bashLang.default, jsonLang.default, diffLang.default],
-			engine: createOnigurumaEngine(import("shiki/wasm")),
+			engine: createJavaScriptRegexEngine(),
 		});
 
 		highlighterInstance = hl;

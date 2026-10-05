@@ -118,22 +118,27 @@ async function run() {
 		await evalJs('document.querySelector(".cp-att-remove")?.click()');
 		await new Promise(r => setTimeout(r, 200));
 
-		console.log("5. 测试子任务看板展开与收起...");
-		// 标题栏的文件 / Git / 子任务共用 .mh-panel-btn，按文字区分
-		const findSubBtn = `[...document.querySelectorAll(".mh-panel-btn")].find(b => b.textContent.includes("子任务"))`;
-		const subBtn = await evalJs(`!!${findSubBtn}`);
-		if (!subBtn) throw new Error("未找到子任务看板按钮 .mh-panel-btn（子任务）");
-		await evalJs(`${findSubBtn}.click()`);
-		await new Promise(r => setTimeout(r, 200));
-		const panelOpen = await evalJs('!!document.querySelector(".sub-panel")');
-		if (!panelOpen) throw new Error("子任务看板未能成功展开 .sub-panel");
-		console.log("   子任务看板展开成功");
+		console.log("5. 测试右侧面板与子任务看板...");
+		// 展开右侧面板
+		await evalJs('document.querySelector(".mh-sidebar-toggle")?.click()');
+		await new Promise(r => setTimeout(r, 300));
+		const rpOpen = await evalJs('!!document.querySelector(".rp-panel")');
+		if (!rpOpen) throw new Error("未能成功展开右侧面板 .rp-panel");
 
-		await evalJs('document.querySelector(".sub-close-btn").click()');
+		// 切换到子任务 Tab
+		const findSubTab = `[...document.querySelectorAll(".rp-tab")].find(b => b.textContent.includes("子任务"))`;
+		await evalJs(`${findSubTab}?.click()`);
 		await new Promise(r => setTimeout(r, 200));
-		const panelClosed = await evalJs('!document.querySelector(".sub-panel")');
-		if (!panelClosed) throw new Error("子任务看板关闭失败");
-		console.log("   子任务看板关闭成功");
+		const subagentActive = await evalJs(`!!document.querySelector(".rp-tab.is-active")?.textContent.includes("子任务")`);
+		if (!subagentActive) throw new Error("子任务 Tab 切换失败");
+		console.log("   右侧面板与子任务 Tab 展开成功");
+
+		// 收起右侧面板
+		await evalJs('document.querySelector(".rp-close-btn")?.click()');
+		await new Promise(r => setTimeout(r, 200));
+		const rpClosed = await evalJs('!document.querySelector(".rp-panel")');
+		if (!rpClosed) throw new Error("右侧面板关闭失败");
+		console.log("   右侧面板关闭成功");
 
 		console.log("6. 测试全局快捷键与命令面板 (Cmd+K)...");
 		await evalJs(`window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }))`);
@@ -237,7 +242,7 @@ async function run() {
 			if (memTab) memTab.click();
 		})()`);
 		await new Promise(r => setTimeout(r, 100));
-		const hasMemorySection = await evalJs('!!document.querySelector(".sp-section-heading") && document.querySelector(".sp-section-heading").textContent.includes("长效记忆系统")');
+		const hasMemorySection = await evalJs('!!document.querySelector(".sp-section-heading") && document.querySelector(".sp-section-heading").textContent.includes("记忆")');
 		if (!hasMemorySection) throw new Error("切换记忆与知识选项卡失败，未找到标题");
 		console.log("   切换记忆与知识选项卡并加载记忆配置成功");
 
