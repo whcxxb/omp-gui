@@ -866,67 +866,70 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 				</div>
 			)}
 			<div className="cp-bar">
-				<button
-					type="button"
-					className="cp-attach-btn"
-					title="添加文件或图片"
-					disabled={!connected}
-					onClick={() => fileInputRef.current?.click()}
-				>
-					<Paperclip size={14} />
-				</button>
-				<input
-					ref={fileInputRef}
-					type="file"
-					multiple
-					style={{ display: "none" }}
-					onChange={async e => {
-						if (e.target.files && e.target.files.length > 0) {
-							const newAtts = await processDroppedFiles(e.target.files, thread.cwd);
-							if (newAtts.length > 0) {
-								setAttachments(prev => [...prev, ...newAtts]);
+				<div className="cp-bar-left">
+					<button
+						type="button"
+						className="cp-attach-btn"
+						title="添加文件或图片"
+						disabled={!connected}
+						onClick={() => fileInputRef.current?.click()}
+					>
+						<Paperclip size={14} />
+					</button>
+					<input
+						ref={fileInputRef}
+						type="file"
+						multiple
+						style={{ display: "none" }}
+						onChange={async e => {
+							if (e.target.files && e.target.files.length > 0) {
+								const newAtts = await processDroppedFiles(e.target.files, thread.cwd);
+								if (newAtts.length > 0) {
+									setAttachments(prev => [...prev, ...newAtts]);
+								}
+								e.target.value = "";
 							}
-							e.target.value = "";
-						}
-					}}
-				/>
-				<ModePicker thread={thread} />
-				<ModelPicker thread={thread} />
-				<ThinkingPicker thread={thread} />
-				<ApprovalModePicker thread={thread} />
-				<div className="cp-spacer" />
-				{queued > 0 && <span className="cp-meta cp-meta-pill">排队 {queued}</span>}
-				{usage?.percent != null && (
-					<span className="cp-meta cp-meta-pill" title={`${usage.tokens ?? "-"} / ${usage.contextWindow ?? "-"} tokens`}>
-						上下文 {Math.round(usage.percent)}%
-					</span>
-				)}
-				<span className="cp-hint" title="按 Enter 发送，Shift+Enter 换行">
-					↵
-				</span>
-				{thread.working && !text.trim() && attachments.length === 0 ? (
-					<button
-						type="button"
-						className="cp-send is-stop"
-						title="停止"
-						onClick={() => {
-							playSound("error");
-							void abort(thread.key);
 						}}
-					>
-						<Square size={12} fill="currentColor" />
-					</button>
-				) : (
-					<button
-						type="button"
-						className="cp-send"
-						title={thread.working ? "挂起排队 (任务结束后自动执行)" : "发送 (Enter)"}
-						disabled={!canSend}
-						onClick={submit}
-					>
-						<ArrowUp size={16} />
-					</button>
-				)}
+					/>
+					<ModePicker thread={thread} />
+					<ModelPicker thread={thread} />
+					<ThinkingPicker thread={thread} />
+					<ApprovalModePicker thread={thread} />
+				</div>
+				<div className="cp-bar-right">
+					{queued > 0 && <span className="cp-meta cp-meta-pill">排队 {queued}</span>}
+					{usage?.percent != null && (
+						<span className="cp-meta cp-meta-pill" title={`${usage.tokens ?? "-"} / ${usage.contextWindow ?? "-"} tokens`}>
+							上下文 {Math.round(usage.percent)}%
+						</span>
+					)}
+					<span className="cp-hint" title="按 Enter 发送，Shift+Enter 换行">
+						↵
+					</span>
+					{thread.working && !text.trim() && attachments.length === 0 ? (
+						<button
+							type="button"
+							className="cp-send is-stop"
+							title="停止"
+							onClick={() => {
+								playSound("error");
+								void abort(thread.key);
+							}}
+						>
+							<Square size={12} fill="currentColor" />
+						</button>
+					) : (
+						<button
+							type="button"
+							className="cp-send"
+							title={thread.working ? "挂起排队 (任务结束后自动执行)" : "发送 (Enter)"}
+							disabled={!canSend}
+							onClick={submit}
+						>
+							<ArrowUp size={16} />
+						</button>
+					)}
+				</div>
 			</div>
 		</div>
 		{perfStats && (
@@ -984,8 +987,14 @@ function ModelPicker({ thread }: { thread: Thread }): ReactNode {
 	);
 
 	return (
-		<div className="pk" ref={ref}>
-			<button type="button" className="pk-trigger" disabled={thread.status !== "ready"} onClick={() => setOpen(!open)}>
+		<div className="pk pk-model" ref={ref}>
+			<button
+				type="button"
+				className="pk-trigger"
+				title={current ? current.name || current.id : "模型"}
+				disabled={thread.status !== "ready"}
+				onClick={() => setOpen(!open)}
+			>
 				<span className="pk-label">{current ? current.name || current.id : "模型"}</span>
 				<ChevronDown size={12} />
 			</button>

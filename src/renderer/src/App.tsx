@@ -1,4 +1,4 @@
-import { FolderOpen, FolderPlus, GitBranch, ListTodo, PanelLeft, PanelRight, Pencil, RotateCw, Search, Sparkles, X } from "lucide-react";
+import { Brain, FolderOpen, FolderPlus, GitBranch, ListTodo, PanelLeft, PanelRight, Pencil, RotateCw, Search, Sparkles, X } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import type { ProjectSummary, SessionSummary } from "@shared/ipc";
 import { Composer } from "./components/Composer";
@@ -6,9 +6,10 @@ import { Sidebar, type SidebarThreadItem } from "./components/Sidebar";
 import { ThreadView } from "./components/ThreadView";
 import { RightPanel } from "./components/RightPanel";
 import { CommandPalette } from "./components/CommandPalette";
-import { SettingsModal } from "./components/SettingsModal";
+import { SettingsModal, type SettingsTab } from "./components/SettingsModal";
 import { UiRequestCard } from "./components/UiRequestCard";
 import { ThreadSkeleton } from "./components/ThreadSkeleton";
+import { MemoryToast, type MemoryToastData } from "./components/MemoryToast";
 import { exportThreadToMarkdown } from "./lib/export";
 import { playSound } from "./lib/sound";
 import { applyTheme, loadTheme } from "./lib/theme";
@@ -79,8 +80,14 @@ export function App(): ReactNode {
 	const [sidebarOpen, setSidebarOpen] = useState(true);
 	const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
 	const [settingsOpen, setSettingsOpen] = useState(false);
+	const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab | undefined>(undefined);
 	const [sidebarWidth, setSidebarWidth] = useState<number>(loadSidebarWidth);
+	const [memoryToast, setMemoryToast] = useState<MemoryToastData | null>(null);
 
+	const openSettings = (tab?: SettingsTab): void => {
+		setSettingsInitialTab(tab);
+		setSettingsOpen(true);
+	};
 	const updateSidebarWidth = (w: number): void => {
 		setSidebarWidth(w);
 		localStorage.setItem(SIDEBAR_WIDTH_KEY, String(w));
@@ -121,6 +128,38 @@ export function App(): ReactNode {
 		window.addEventListener("omp:select-thread", handleSelect);
 		return () => window.removeEventListener("omp:select-thread", handleSelect);
 	}, [threads]);
+
+	useEffect(() => {
+		const off = window.omp.onMemorySaved(event => {
+			if (!event.memories || event.memories.length === 0) return;
+			const first = event.memories[0];
+			const count = event.memories.length;
+			setMemoryToast({
+				id: `${first.id}-${Date.now()}`,
+				title: count === 1 ? "Mnemopi 记忆已沉淀" : `Mnemopi 沉淀了 ${count} 条记忆`,
+				content: first.content,
+				cwd: event.cwd,
+			});
+		});
+		return off;
+	}, []);
+
+	useEffect(() => {
+		const onMemoryWritten = (e: Event): void => {
+			const detail = (e as CustomEvent<{ cwd: string; items: string[] }>).detail;
+			if (!detail || !detail.items || detail.items.length === 0) return;
+			const first = detail.items[0];
+			const count = detail.items.length;
+			setMemoryToast({
+				id: `retain-${Date.now()}`,
+				title: count === 1 ? "已保存记忆 (Retain)" : `已保存 ${count} 条记忆 (Retain)`,
+				content: first,
+				cwd: detail.cwd,
+			});
+		};
+		window.addEventListener("omp:memory-written", onMemoryWritten);
+		return () => window.removeEventListener("omp:memory-written", onMemoryWritten);
+	}, []);
 
 	const active = threads.find(t => t.key === activeKey) ?? null;
 	const activeProject = active?.cwd ?? currentProject ?? projects[0]?.path ?? null;
@@ -348,7 +387,7 @@ export function App(): ReactNode {
 				onWidthChange={updateSidebarWidth}
 				onResetWidth={resetSidebarWidth}
 				isSettingsActive={settingsOpen}
-				onOpenSettings={() => setSettingsOpen(v => !v)}
+				onOpenSettings={() => openSettings()}
 			/>
 			<main className="main">
 				{active ? (
@@ -377,14 +416,24 @@ export function App(): ReactNode {
 				onOpenSession={openSession}
 				onToggleTheme={toggleTheme}
 				onToggleSidebar={() => setSidebarOpen(v => !v)}
-				onOpenSettings={() => setSettingsOpen(true)}
+				onOpenSettings={() => openSettings()}
+				onOpenMemory={() => openSettings("memory")}
 			/>
 			<SettingsModal
 				isOpen={settingsOpen}
-				onClose={() => setSettingsOpen(false)}
+				onClose={() => {
+					setSettingsOpen(false);
+					setSettingsInitialTab(undefined);
+				}}
 				ompVersion={ompVersion}
 				onResetSidebarWidth={resetSidebarWidth}
 				activeProject={activeProject}
+				initialTab={settingsInitialTab}
+			/>
+			<MemoryToast
+				toast={memoryToast}
+				onClose={() => setMemoryToast(null)}
+				onOpenMemoryManager={() => openSettings("memory")}
 			/>
 		</div>
 	);
@@ -402,15 +451,12 @@ function firstPrompt(thread: Thread): string | null {
 	return null;
 }
 
-function ThreadPane({
-	thread,
-	sidebarOpen,
-	onToggleSidebar,
-}: {
+function ThreadPane(props: {
 	thread: Thread;
 	sidebarOpen: boolean;
 	onToggleSidebar(): void;
 }): ReactNode {
+	const { thread, sidebarOpen, onToggleSidebar } = props;
 	const title = thread.state?.sessionName || firstPrompt(thread) || (thread.entries.length === 0 ? "新对话" : "未���名对话");
 	const isLoadingSession = Boolean(thread.sessionFile && thread.entries.length === 0 && thread.status === "starting");
 	const empty = !isLoadingSession && thread.entries.length === 0 && !thread.stream && !thread.working;

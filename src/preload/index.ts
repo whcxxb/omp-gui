@@ -1,4 +1,4 @@
-import type { OmpApi, RuntimeMessage, TerminalExitEvent, TerminalOutputEvent } from "@shared/ipc";
+import type { MemorySavedEvent, OmpApi, RuntimeMessage, TerminalExitEvent, TerminalOutputEvent } from "@shared/ipc";
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 
 const api: OmpApi = {
@@ -45,6 +45,13 @@ const api: OmpApi = {
 	gitCommitDiff: (cwd, hash, file) => ipcRenderer.invoke("omp:git-commit-diff", cwd, hash, file),
 	runTerminalCommand: (cwd, command) => ipcRenderer.invoke("omp:terminal-exec", { cwd, command }),
 	killTerminalCommand: id => ipcRenderer.invoke("omp:terminal-kill", { id }),
+	getMemoryOverview: cwd => ipcRenderer.invoke("omp:get-memory-overview", cwd),
+	deleteMemory: (bankId, id, type) => ipcRenderer.invoke("omp:delete-memory", bankId, id, type),
+	onMemorySaved(listener) {
+		const handler = (_e: unknown, event: MemorySavedEvent) => listener(event);
+		ipcRenderer.on("omp:memory-saved", handler);
+		return () => ipcRenderer.removeListener("omp:memory-saved", handler);
+	},
 	onTerminalOutput(listener) {
 		const handler = (_e: unknown, event: TerminalOutputEvent) => listener(event);
 		ipcRenderer.on("omp:terminal-output", handler);

@@ -25,6 +25,7 @@ import type { ApprovalMode } from "@shared/ipc";
 import { THEMES, type Theme, applyTheme, loadTheme } from "@/lib/theme";
 import { getSoundVolume, isSoundEnabled, playSound, setSoundEnabled, setSoundVolume } from "@/lib/sound";
 import { SkillManager } from "./SkillManager";
+import { MemoryGraphView } from "./MemoryGraphView";
 
 import upstreamMeta from "@/collab/UPSTREAM.json";
 export interface SettingsModalProps {
@@ -33,9 +34,10 @@ export interface SettingsModalProps {
 	ompVersion: string | null;
 	onResetSidebarWidth(): void;
 	activeProject?: string | null;
+	initialTab?: SettingsTab;
 }
 
-type SettingsTab =
+export type SettingsTab =
 	| "appearance"
 	| "approvals"
 	| "reasoning"
@@ -123,8 +125,8 @@ const SHORTCUTS = [
 ];
 
 export function SettingsModal(props: SettingsModalProps): ReactNode {
-	const { isOpen, onClose, ompVersion, onResetSidebarWidth, activeProject } = props;
-	const [activeTab, setActiveTab] = useState<SettingsTab>("appearance");
+	const { isOpen, onClose, ompVersion, onResetSidebarWidth, activeProject, initialTab } = props;
+	const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? "appearance");
 	const [navFilter, setNavFilter] = useState("");
 
 	// GUI 偏好
@@ -139,6 +141,7 @@ export function SettingsModal(props: SettingsModalProps): ReactNode {
 
 	useEffect(() => {
 		if (isOpen) {
+			if (initialTab) setActiveTab(initialTab);
 			setTheme(loadTheme());
 			setSoundEnabledState(isSoundEnabled());
 			setSoundVolumeState(getSoundVolume());
@@ -395,13 +398,37 @@ export function SettingsModal(props: SettingsModalProps): ReactNode {
 						{/* 4. 记忆与知识 (Mnemopi/Hermes) */}
 						{activeTab === "memory" && (
 							<div className="sp-section">
-								<h2 className="sp-section-heading">长效记忆系统 (Mnemopi / Hermes-like)</h2>
+								<h2 className="sp-section-heading">整体 OMP 记忆图与长效知识网络 (Mnemopi)</h2>
 								<p className="sp-section-sub">
-									赋能 Agent 跨会话的记忆持久化能力，自动提炼开发规范、项目偏好与经验事实，并在新任务中自动召回。
+									集中呈现并可视化跨项目持久化的开发经验、实体关系与技术决策。Agent 会在此图谱中自动联想与召回上下文。
 								</p>
 
+								{/* 全局/项目记忆图谱与实体事实浏览器 */}
+								<MemoryGraphView activeProject={activeProject ?? null} />
+
+								<h3 className="sp-sub-heading" style={{ margin: "28px 0 10px", fontSize: "13px", fontWeight: 600, color: "var(--fg)" }}>
+									记忆引擎配置 (Mnemopi Engine Settings)
+								</h3>
 								<div className="sp-card-group">
-									{/* 记忆后端选择 */}
+									{/* Mnemopi 记忆总开关 */}
+									<div className="sp-card">
+										<div className="sp-card-info">
+											<span className="sp-card-title">启用长效记忆 (Mnemopi Memory 开关)</span>
+											<span className="sp-card-desc">
+												{ompConfigs["memory.backend"] === "mnemopi"
+													? "已开启长效记忆系统（Mnemopi），项目技术决策与开发偏好将自动持久化沉淀与召回。"
+													: "记忆系统已关闭。开启后 Agent 即可跨会话记住重要事实与编码习惯。"}
+											</span>
+										</div>
+										<input
+											type="checkbox"
+											className="set-switch"
+											checked={ompConfigs["memory.backend"] === "mnemopi"}
+											onChange={e => void updateOmpConfig("memory.backend", e.target.checked ? "mnemopi" : "off")}
+										/>
+									</div>
+
+									{/* 记忆后端高级选择 */}
 									<div className="sp-card">
 										<div className="sp-card-info">
 											<span className="sp-card-title">记忆引擎后端 (memory.backend)</span>

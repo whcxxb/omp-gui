@@ -131,6 +131,56 @@ export type RuntimeMessage =
 	| { kind: "stderr"; text: string }
 	| { kind: "exit"; code: number | null; signal: string | null };
 
+export interface MemoryItem {
+	id: string;
+	bankId: string;
+	bankName: string;
+	content: string;
+	subject?: string;
+	predicate?: string;
+	type: "fact" | "episode" | "explicit";
+	createdAt: string;
+}
+
+export interface MemoryBankSummary {
+	id: string;
+	name: string;
+	path: string;
+	factsCount: number;
+	edgesCount: number;
+}
+
+export interface MemoryGraphNode {
+	id: string;
+	label: string;
+	bankId: string;
+	bankName: string;
+	type: "bank" | "fact" | "node";
+	content?: string;
+	createdAt?: string;
+}
+
+export interface MemoryGraphEdge {
+	source: string;
+	target: string;
+	label: string;
+	weight?: number;
+}
+
+export interface MemoryGraphData {
+	banks: MemoryBankSummary[];
+	totalFacts: number;
+	totalEdges: number;
+	nodes: MemoryGraphNode[];
+	edges: MemoryGraphEdge[];
+	memories: MemoryItem[];
+}
+
+export interface MemorySavedEvent {
+	cwd: string;
+	memories: MemoryItem[];
+}
+
 export interface OmpApi {
 	listProjects(): Promise<ProjectSummary[]>;
 	pickProject(): Promise<string | null>;
@@ -170,6 +220,9 @@ export interface OmpApi {
 	gitCommitDiff(cwd: string, hash: string, file?: string): Promise<string>;
 	runTerminalCommand(cwd: string, command: string): Promise<string>;
 	killTerminalCommand(id: string): Promise<boolean>;
+	getMemoryOverview(cwd?: string): Promise<MemoryGraphData>;
+	deleteMemory(bankId: string, id: string, type: "fact" | "episode"): Promise<boolean>;
+	onMemorySaved(listener: (event: MemorySavedEvent) => void): () => void;
 	onTerminalOutput(listener: (event: TerminalOutputEvent) => void): () => void;
 	onTerminalExit(listener: (event: TerminalExitEvent) => void): () => void;
 	onRuntime(listener: (runtimeId: string, message: RuntimeMessage) => void): () => void;

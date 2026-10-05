@@ -75,7 +75,10 @@ interface Entry {
 export class RuntimePool {
 	#entries = new Map<string, Entry>();
 
-	constructor(private readonly emit: Emit) {}
+	constructor(
+		private readonly emit: Emit,
+		private readonly onAgentEnd?: (cwd: string) => void,
+	) {}
 
 	async open(options: OpenSessionOptions): Promise<RuntimeInfo> {
 		const ompPath = resolveOmp();
@@ -86,7 +89,10 @@ export class RuntimePool {
 
 		rpc.on("frame", (frame: Record<string, unknown>) => {
 			if (frame.type === "agent_start") entry.streaming = true;
-			else if (frame.type === "agent_end") entry.streaming = false;
+			else if (frame.type === "agent_end") {
+				entry.streaming = false;
+				this.onAgentEnd?.(rpc.cwd);
+			}
 			this.emit(rpc.id, { kind: "frame", frame });
 		});
 		rpc.on("stderr", (text: string) => this.emit(rpc.id, { kind: "stderr", text }));

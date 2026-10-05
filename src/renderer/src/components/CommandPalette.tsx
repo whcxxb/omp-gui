@@ -1,4 +1,5 @@
 import {
+	Brain,
 	Command,
 	Folder,
 	MessageSquare,
@@ -22,6 +23,7 @@ export interface CommandPaletteProps {
 	onToggleTheme(): void;
 	onToggleSidebar(): void;
 	onOpenSettings?(): void;
+	onOpenMemory?(): void;
 }
 
 interface PaletteItem {
@@ -45,6 +47,7 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
 		onToggleTheme,
 		onToggleSidebar,
 		onOpenSettings,
+		onOpenMemory,
 	} = props;
 
 	const [query, setQuery] = useState("");
@@ -96,6 +99,16 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
 				icon: <Settings size={15} />,
 				shortcut: "⌘,",
 				onSelect: onOpenSettings,
+			});
+		}
+		if (onOpenMemory) {
+			list.push({
+				id: "action-open-memory",
+				group: "操作",
+				title: "查看项目记忆 (Mnemopi)",
+				sub: "检索与管理已持久化的长期事实与经验",
+				icon: <Brain size={15} />,
+				onSelect: onOpenMemory,
 			});
 		}
 		list.push({

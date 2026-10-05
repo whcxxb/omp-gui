@@ -345,6 +345,30 @@ export async function sendPrompt(key: string, message: string, images?: ImageCon
 		update(key, t => pushNotice(t, "error", error instanceof Error ? error.message : String(error)));
 	}
 }
+export async function editAndResendPrompt(key: string, targetEntryId?: string, newMessage?: string): Promise<void> {
+	const thread = getThread(key);
+	if (!thread || !newMessage?.trim()) return;
+
+	if (thread.working) {
+		await abort(key);
+	}
+
+	if (targetEntryId && thread.entries.length > 0) {
+		const idx = thread.entries.findIndex(e => e.id === targetEntryId);
+		if (idx !== -1) {
+			const prevEntries = thread.entries.slice(0, idx);
+			const prevMessage = prevEntries.findLast(e => e.type === "message" || Boolean(e.id));
+			if (prevMessage && thread.runtimeId) {
+				await window.omp.request(thread.runtimeId, { type: "branch", entryId: prevMessage.id }).catch(() => undefined);
+			} else if (prevEntries.length === 0 && thread.runtimeId) {
+				await window.omp.request(thread.runtimeId, { type: "new_session" }).catch(() => undefined);
+			}
+			update(key, () => ({ entries: prevEntries }));
+		}
+	}
+
+	await sendPrompt(key, newMessage.trim());
+}
 
 export function enqueuePrompt(
 	key: string,
@@ -530,6 +554,22 @@ function applyFrame(thread: Thread, frame: Frame): Partial<Thread> | null {
 			}
 			if (frame.toolName === "todo") {
 				void refreshState(thread.key);
+			}
+			if ((frame.toolName === "retain" || frame.toolName === "memory_retain") && typeof window !== "undefined") {
+				const existingTool = thread.activeTools.get(String(frame.toolCallId));
+				const rawArgs = existingTool?.args ?? frame.args;
+				const rawItems = (rawArgs as { items?: Array<{ content?: string }> } | undefined)?.items;
+				const contentList = Array.isArray(rawItems)
+					? rawItems.map(it => String(it?.content ?? "").trim()).filter(Boolean)
+					: [];
+				window.dispatchEvent(
+					new CustomEvent("omp:memory-written", {
+						detail: {
+							cwd: thread.cwd,
+							items: contentList,
+						},
+					}),
+				);
 			}
 			return { activeTools: next };
 		}

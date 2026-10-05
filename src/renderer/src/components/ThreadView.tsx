@@ -1,4 +1,4 @@
-import { ArrowDown, Brain, Check, ChevronRight, Copy, CornerDownLeft, GitFork, GripVertical, Quote } from "lucide-react";
+import { ArrowDown, Brain, Check, ChevronRight, Copy, CornerDownLeft, GitFork, GripVertical, Pencil, Quote } from "lucide-react";
 import { memo, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { ActiveTool } from "@/collab/lib/client";
 import { Markdown } from "./Markdown";
@@ -11,7 +11,7 @@ import type {
 	TextContent,
 	ToolResultMessage,
 } from "@/collab/wire/index";
-import { forkThread } from "@/state/threads";
+import { editAndResendPrompt, forkThread } from "@/state/threads";
 import type { Thread } from "@/state/types";
 import { TodoHud } from "./TodoHud";
 const FOLLOW_THRESHOLD_PX = 80;
@@ -272,86 +272,121 @@ function UserMessageBubble({
 	timestamp?: number | string;
 }): ReactNode {
 	const [copied, setCopied] = useState(false);
+	const [isEditing, setIsEditing] = useState(false);
+	const [editText, setEditText] = useState("");
+	const editInputRef = useRef<HTMLTextAreaElement | null>(null);
 	const userText = extractUserText(content);
 	const timeStr = formatMessageTime(timestamp);
 	const fullTime = getFullTimeString(timestamp);
 
-	const handleCopy = (): void => {
+	useEffect(() => {
+		if (isEditing && editInputRef.current) {
+			editInputRef.current.focus();
+			editInputRef.current.setSelectionRange(editInputRef.current.value.length, editInputRef.current.value.length);
+		}
+	}, [isEditing]);
+
+	const handleCopy = (e: React.MouseEvent): void => {
+		e.stopPropagation();
+		e.preventDefault();
 		if (!userText) return;
 		void navigator.clipboard.writeText(userText);
 		setCopied(true);
 		setTimeout(() => setCopied(false), 1500);
 	};
 
-	const handleQuote = (): void => {
-		if (!userText) return;
-		window.dispatchEvent(new CustomEvent("omp:insert-prompt", { detail: { text: userText } }));
+	const handleStartEdit = (e: React.MouseEvent): void => {
+		e.stopPropagation();
+		e.preventDefault();
+		setEditText(userText);
+		setIsEditing(true);
+	};
+
+	const handleSaveAndResend = async (): Promise<void> => {
+		const trimmed = editText.trim();
+		if (!trimmed) return;
+		setIsEditing(false);
+		await editAndResendPrompt(threadKey, entryId, trimmed);
 	};
 
 	return (
 		<div className="th-user">
-			<div
-				className="th-user-bubble"
-				draggable={Boolean(userText)}
-				title={userText ? "可拖拽此条提问记录到输入框以引入" : undefined}
-				onDragStart={e => {
-					if (!userText) return;
-					const payload = {
-						type: "message-record",
-						role: "user",
-						content: userText,
-						summary: userText.slice(0, 40),
-					};
-					e.dataTransfer.setData("application/x-omp-message", JSON.stringify(payload));
-					e.dataTransfer.setData("text/plain", `> 用户提问: ${userText}`);
-					e.dataTransfer.effectAllowed = "copyLink";
-				}}
-			>
-				<div className="th-user-body">
-					<UserContent content={content} />
-				</div>
-				<div className="th-user-footer">
-					{timeStr && (
-						<span className="th-user-time" title={fullTime}>
-							{timeStr}
-						</span>
+			<div className="th-user-wrap">
+				<div className={`th-user-bubble${isEditing ? " is-editing" : ""}`}>
+					{isEditing ? (
+						<div className="th-user-edit-wrap">
+							<textarea
+								ref={editInputRef}
+								className="th-user-edit-input"
+								value={editText}
+								placeholder="修改提问内容..."
+								onChange={e => setEditText(e.target.value)}
+								onKeyDown={e => {
+									if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+										e.preventDefault();
+										void handleSaveAndResend();
+									} else if (e.key === "Escape") {
+										e.preventDefault();
+										setIsEditing(false);
+										setEditText(userText);
+									}
+								}}
+							/>
+							<div className="th-user-edit-footer">
+								<span className="th-user-edit-hint">按 ⌘+Enter 或点击重新发送</span>
+								<div className="th-user-edit-btns">
+									<button
+										type="button"
+										className="th-user-edit-btn is-cancel"
+										onClick={() => {
+											setIsEditing(false);
+											setEditText(userText);
+										}}
+									>
+										取消
+									</button>
+									<button
+										type="button"
+										className="th-user-edit-btn is-submit"
+										disabled={!editText.trim()}
+										onClick={() => void handleSaveAndResend()}
+									>
+										重新发送
+									</button>
+								</div>
+							</div>
+						</div>
+					) : (
+						<div className="th-user-body">
+							<UserContent content={content} />
+						</div>
 					)}
-					<div className="th-user-actions">
+				</div>
+				{!isEditing && (
+					<div className="th-user-footer">
+						{timeStr && (
+							<span className="th-user-time" title={fullTime}>
+								{timeStr}
+							</span>
+						)}
 						<button
 							type="button"
-							className="th-action-btn"
+							className="th-user-btn"
 							title={copied ? "已复制提问" : "复制提问"}
 							onClick={handleCopy}
 						>
-							{copied ? <Check size={12} className="is-success" /> : <Copy size={12} />}
+							{copied ? <Check size={13} className="is-success" /> : <Copy size={13} />}
 						</button>
 						<button
 							type="button"
-							className="th-action-btn"
-							title="编辑并填入输入框"
-							onClick={handleQuote}
+							className="th-user-btn"
+							title="修改并重新发送"
+							onClick={handleStartEdit}
 						>
-							<CornerDownLeft size={12} />
+							<Pencil size={13} />
 						</button>
-						{entryId && (
-							<button
-								type="button"
-								className="th-action-btn"
-								title="由此提问节点派生新分支会话"
-								onClick={() => void forkThread(threadKey, entryId)}
-							>
-								<GitFork size={12} />
-								<span>分支</span>
-							</button>
-						)}
-						<div
-							className="th-action-drag"
-							title="按住拖拽至输入框引用"
-						>
-							<GripVertical size={12} />
-						</div>
 					</div>
-				</div>
+				)}
 			</div>
 		</div>
 	);

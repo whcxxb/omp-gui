@@ -10,12 +10,23 @@ import { cleanupTerminalProcesses, registerTerminalIpc } from "./terminal";
 import { detectDefaultApprovalMode, loginEnv, ompVersion, resolveOmp, RuntimePool } from "./runtimes";
 import { deleteSessionFile, forkSession, groupProjects, readSessionExcerpt, renameSessionFile, scanSessions, sessionsDir } from "./sessions";
 import { readStore, writeStore } from "./store";
+import { deleteMemoryItem, detectNewMemories, getOverallMemoryOverview } from "./memory";
 
 let win: BrowserWindow | null = null;
 
-const pool = new RuntimePool((runtimeId, message) => {
-	win?.webContents.send("omp:runtime", runtimeId, message);
-});
+const pool = new RuntimePool(
+	(runtimeId, message) => {
+		win?.webContents.send("omp:runtime", runtimeId, message);
+	},
+	(cwd: string) => {
+		setTimeout(() => {
+			const newMemories = detectNewMemories(cwd);
+			if (newMemories.length > 0) {
+				win?.webContents.send("omp:memory-saved", { cwd, memories: newMemories });
+			}
+		}, 750);
+	},
+);
 
 /** 与 tokens.css 的 --bg 保持一致，供窗口首次绘制使用。 */
 const WINDOW_BACKGROUND: Record<Theme, { dark: string; light: string }> = {
@@ -192,6 +203,8 @@ function registerIpc(): void {
 	ipcMain.handle("omp:save-skill", (_e, path: string, content: string) => saveSkillContent(path, content));
 	ipcMain.handle("omp:search-registry-skills", (_e, query: string) => searchSkillshare(query));
 	ipcMain.handle("omp:install-registry-skill", (_e, name: string, isGlobal?: boolean, cwd?: string) => installSkillshare(name, isGlobal, cwd));
+	ipcMain.handle("omp:get-memory-overview", (_e, cwd?: string) => getOverallMemoryOverview(cwd));
+	ipcMain.handle("omp:delete-memory", (_e, bankId: string, id: string, type: "fact" | "episode") => deleteMemoryItem(bankId, id, type));
 	ipcMain.handle("omp:generate-title", async (_e, prompt: string) => {
 		const ompPath = resolveOmp();
 		if (!ompPath) return null;
