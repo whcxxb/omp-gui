@@ -1,6 +1,6 @@
 import { Check, Copy } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
-import { getHighlighterSync, initHighlighter, normalizeLang, resolveShikiTheme } from "../lib/highlighter";
+import { normalizeLang, renderHighlightedHtml, resolveShikiTheme } from "../lib/highlighter";
 import { loadTheme } from "../lib/theme";
 
 interface CodeBlockProps {
@@ -36,29 +36,15 @@ export function CodeBlock({ code, language }: CodeBlockProps): ReactNode {
 	const shikiTheme = resolveShikiTheme(themeState, isDarkState);
 
 	useEffect(() => {
-		const hl = getHighlighterSync();
-		if (hl) {
-			try {
-				const html = hl.codeToHtml(code, {
-					lang: normalized,
-					theme: shikiTheme,
-				});
+		let isCancelled = false;
+		void renderHighlightedHtml(code, normalized, shikiTheme).then(html => {
+			if (!isCancelled) {
 				setHighlightedHtml(html);
-				return;
-			} catch {}
-		}
-
-		void initHighlighter().then(highlighter => {
-			try {
-				const html = highlighter.codeToHtml(code, {
-					lang: normalized,
-					theme: shikiTheme,
-				});
-				setHighlightedHtml(html);
-			} catch {
-				setHighlightedHtml(null);
 			}
 		});
+		return () => {
+			isCancelled = true;
+		};
 	}, [code, normalized, shikiTheme]);
 
 	const handleCopy = (): void => {
