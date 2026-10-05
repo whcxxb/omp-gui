@@ -2848,7 +2848,8 @@
 	min-width: 0;
 }
 
-.th-assistant > .tr-md {
+.th-assistant > .tr-md,
+.th-assistant .tr-md-container > .tr-md {
 	font-size: 14px;
 	line-height: 1.7;
 }

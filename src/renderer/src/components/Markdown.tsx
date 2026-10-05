@@ -1,7 +1,9 @@
-import { memo, type ReactNode, useMemo } from "react";
+import { Marked } from "marked";
+import { lazy, memo, Suspense, type ReactNode, useMemo } from "react";
 import { Markdown as CollabMarkdown } from "@/collab/components/transcript/Markdown";
 import { CodeBlock } from "./CodeBlock";
-import { MermaidBlock } from "./MermaidBlock";
+
+const LazyMermaidBlock = lazy(() => import("./MermaidBlock"));
 
 interface EnhancedMarkdownProps {
 	text: string;
@@ -12,45 +14,44 @@ type Segment =
 	| { type: "code"; lang: string; content: string }
 	| { type: "mermaid"; content: string };
 
+const lexerMd = new Marked({ gfm: true, breaks: true });
+
 function parseSegments(input: string): Segment[] {
-	if (!input.includes("```")) {
+	if (!input || (!input.includes("```") && !input.includes("~~~"))) {
 		return [{ type: "markdown", content: input }];
 	}
 
-	const regex = /```([a-zA-Z0-9_-]*)[ \t]*\r?\n([\s\S]*?)(?:```|$)/g;
-	const segments: Segment[] = [];
-	let lastIndex = 0;
-	let match: RegExpExecArray | null;
+	try {
+		const tokens = lexerMd.lexer(input);
+		const segments: Segment[] = [];
+		let proseBuffer = "";
 
-	while ((match = regex.exec(input)) !== null) {
-		if (match.index > lastIndex) {
-			const prose = input.slice(lastIndex, match.index);
-			if (prose) {
-				segments.push({ type: "markdown", content: prose });
+		const flushProse = (): void => {
+			if (proseBuffer.trim()) {
+				segments.push({ type: "markdown", content: proseBuffer });
+			}
+			proseBuffer = "";
+		};
+
+		for (const token of tokens) {
+			if (token.type === "code") {
+				flushProse();
+				const lang = (token.lang || "").trim().toLowerCase();
+				if (lang === "mermaid") {
+					segments.push({ type: "mermaid", content: token.text.trim() });
+				} else {
+					segments.push({ type: "code", lang, content: token.text });
+				}
+			} else {
+				proseBuffer += token.raw;
 			}
 		}
+		flushProse();
 
-		const lang = (match[1] || "").trim().toLowerCase();
-		const rawCode = match[2] ?? "";
-		const code = rawCode.replace(/\r?\n$/, "");
-
-		if (lang === "mermaid") {
-			segments.push({ type: "mermaid", content: code.trim() });
-		} else {
-			segments.push({ type: "code", lang, content: code });
-		}
-
-		lastIndex = regex.lastIndex;
+		return segments.length > 0 ? segments : [{ type: "markdown", content: input }];
+	} catch {
+		return [{ type: "markdown", content: input }];
 	}
-
-	if (lastIndex < input.length) {
-		const tail = input.slice(lastIndex);
-		if (tail) {
-			segments.push({ type: "markdown", content: tail });
-		}
-	}
-
-	return segments;
 }
 
 export const Markdown = memo(function Markdown({ text }: EnhancedMarkdownProps): ReactNode {
@@ -67,7 +68,24 @@ export const Markdown = memo(function Markdown({ text }: EnhancedMarkdownProps):
 					case "code":
 						return <CodeBlock key={`code-${i}`} code={seg.content} language={seg.lang} />;
 					case "mermaid":
-						return <MermaidBlock key={`mmd-${i}`} code={seg.content} />;
+						return (
+							<Suspense
+								key={`mmd-${i}`}
+								fallback={
+									<div className="mermaid-fallback-box">
+										<div className="mermaid-bar">
+											<span className="mermaid-tag">Mermaid 架构图</span>
+											<span className="mermaid-status-hint">正在加载图表引擎...</span>
+										</div>
+										<pre className="mermaid-code-pre">
+											<code>{seg.content}</code>
+										</pre>
+									</div>
+								}
+							>
+								<LazyMermaidBlock code={seg.content} />
+							</Suspense>
+						);
 					case "markdown":
 					default:
 						return <CollabMarkdown key={`md-${i}`} text={seg.content} />;

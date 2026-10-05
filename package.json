@@ -15,24 +15,22 @@
     "test:e2e": "node scripts/test-e2e.mjs",
     "build:mac": "electron-vite build && electron-builder --mac --arm64 -p never"
   },
-  "dependencies": {
+  "devDependencies": {
+    "@types/node": "^22.19.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^5.1.0",
     "cuelume": "^0.2.2",
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
     "katex": "^0.18.9",
     "lucide-react": "^1.48.0",
     "marked": "^18.0.14",
     "mermaid": "^12.0.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "shiki": "^4.5.0"
-  },
-  "devDependencies": {
-    "@types/node": "^22.19.0",
-    "@types/react": "^19.3.0",
-    "@types/react-dom": "^19.3.0",
-    "@vitejs/plugin-react": "^5.1.0",
-    "electron": "^44.4.5",
-    "electron-builder": "^26.15.3",
-    "electron-vite": "^5.0.0",
+    "shiki": "^4.5.0",
     "typescript": "^5.9.3",
     "vite": "^7.3.0"
   }

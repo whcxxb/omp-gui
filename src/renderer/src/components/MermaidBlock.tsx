@@ -1,14 +1,26 @@
-import mermaid from "mermaid";
+import type mermaid from "mermaid";
 import { Check, Copy, Maximize2, Minimize2, ZoomIn, ZoomOut, RefreshCw } from "lucide-react";
 import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
 
-mermaid.initialize({
-	startOnLoad: false,
-	theme: "dark",
-	securityLevel: "loose",
-	fontFamily: "inherit",
-	suppressErrorRendering: true,
-});
+type MermaidInstance = typeof mermaid;
+let mermaidPromise: Promise<MermaidInstance> | null = null;
+
+function getMermaid(): Promise<MermaidInstance> {
+	if (!mermaidPromise) {
+		mermaidPromise = import("mermaid").then(m => {
+			const instance = (m.default || m) as MermaidInstance;
+			instance.initialize({
+				startOnLoad: false,
+				theme: "dark",
+				securityLevel: "loose",
+				fontFamily: "inherit",
+				suppressErrorRendering: true,
+			});
+			return instance;
+		});
+	}
+	return mermaidPromise;
+}
 
 interface MermaidBlockProps {
 	code: string;
@@ -32,34 +44,35 @@ export function MermaidBlock({ code }: MermaidBlockProps): ReactNode {
 		setError(null);
 
 		const theme = isDark ? "dark" : "default";
-		mermaid.initialize({
-			startOnLoad: false,
-			theme,
-			securityLevel: "loose",
-			fontFamily: "inherit",
-			suppressErrorRendering: true,
-			themeVariables: isDark
-				? {
-						primaryColor: "#222533",
-						primaryTextColor: "#e2e8f0",
-						primaryBorderColor: "#475569",
-						lineColor: "#64748b",
-						secondaryColor: "#1e293b",
-						tertiaryColor: "#0f172a",
-					}
-				: {
-						primaryColor: "#f1f5f9",
-						primaryTextColor: "#1e293b",
-						primaryBorderColor: "#cbd5e1",
-						lineColor: "#94a3b8",
-					},
-		});
-
-		// 异步解析渲染
-		mermaid
-			.render(containerId, code)
+		getMermaid()
+			.then(mermaid => {
+				if (isCancelled) return null;
+				mermaid.initialize({
+					startOnLoad: false,
+					theme,
+					securityLevel: "loose",
+					fontFamily: "inherit",
+					suppressErrorRendering: true,
+					themeVariables: isDark
+						? {
+								primaryColor: "#222533",
+								primaryTextColor: "#e2e8f0",
+								primaryBorderColor: "#475569",
+								lineColor: "#64748b",
+								secondaryColor: "#1e293b",
+								tertiaryColor: "#0f172a",
+							}
+						: {
+								primaryColor: "#f1f5f9",
+								primaryTextColor: "#1e293b",
+								primaryBorderColor: "#cbd5e1",
+								lineColor: "#94a3b8",
+							},
+				});
+				return mermaid.render(containerId, code);
+			})
 			.then(result => {
-				if (!isCancelled) {
+				if (result && !isCancelled) {
 					setSvg(result.svg);
 					setError(null);
 				}
@@ -161,3 +174,5 @@ export function MermaidBlock({ code }: MermaidBlockProps): ReactNode {
 		</div>
 	);
 }
+
+export default MermaidBlock;

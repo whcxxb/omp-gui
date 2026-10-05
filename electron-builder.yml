@@ -6,11 +6,18 @@ directories:
   output: dist
   buildResources: build
 
+electronLanguages:
+  - zh-CN
+  - zh-TW
+  - en-US
+  - en
+
 files:
   - out/**/*
   - build/icon.png
   - package.json
-
+  - "!node_modules/**"
+  - "!**/*.map"
 mac:
   category: public.app-category.developer-tools
   icon: build/icon.icns
