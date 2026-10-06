@@ -1,6 +1,6 @@
 // 对话线程状态：把 omp RPC 事件归并成可渲染的会话数据。
 import { useSyncExternalStore } from "react";
-import type { RuntimeMessage } from "@shared/ipc";
+import type { ModelRef, RuntimeMessage, TodoItem } from "@shared/ipc";
 import type { ActiveTool } from "@/collab/lib/client";
 import type { AssistantMessage, ImageContent, SessionEntry, WireMessage } from "@/collab/wire/index";
 import type {
@@ -14,7 +14,6 @@ import type {
 	SubagentProgress,
 	SubagentSnapshot,
 	Thread,
-	TodoPhase,
 	UiRequest,
 } from "./types";
 import { playSound } from "@/lib/sound";
@@ -25,6 +24,8 @@ type Frame = Record<string, unknown>;
 
 let threads: Thread[] = [];
 const listeners = new Set<() => void>();
+/** 等待线程首次 attach 完成（成功或失败）的等待者 */
+const threadReady = new Map<string, { promise: Promise<void>; resolve: () => void }>();
 let entrySeq = 0;
 let noticeSeq = 0;
 let defaultApprovalMode: ApprovalMode = "yolo";
@@ -110,7 +111,6 @@ async function refreshState(key: string): Promise<void> {
 		update(key, t => ({
 			state,
 			sessionFile: state.sessionFile ?? t.sessionFile,
-			todoPhases: state.todoPhases ?? t.todoPhases,
 		}));
 	} catch {
 		// 进程退出时忽略
@@ -124,23 +124,7 @@ async function loadEntries(key: string): Promise<void> {
 		type: "get_entries",
 	});
 	const branch = currentBranch(data.entries, data.leafId);
-	let latestPhases: TodoPhase[] | undefined;
-	for (let i = branch.length - 1; i >= 0; i--) {
-		const entry = branch[i];
-		if (entry.type === "message" && entry.message.role === "toolResult" && "toolName" in entry.message && entry.message.toolName === "todo") {
-			if ("details" in entry.message && entry.message.details && typeof entry.message.details === "object" && "phases" in entry.message.details) {
-				const phases = entry.message.details.phases;
-				if (Array.isArray(phases) && phases.length > 0) {
-					latestPhases = phases as TodoPhase[];
-					break;
-				}
-			}
-		}
-	}
-	update(key, t => ({
-		entries: branch,
-		todoPhases: latestPhases ?? t.todoPhases,
-	}));
+	update(key, () => ({ entries: branch }));
 }
 async function initSubagents(key: string): Promise<void> {
 	const thread = getThread(key);
@@ -173,6 +157,7 @@ async function attach(key: string): Promise<void> {
 			cwd: thread.cwd,
 			sessionFile: thread.sessionFile,
 			approvalMode: thread.approvalMode,
+			model: thread.modelOverride,
 		});
 		update(key, () => ({ runtimeId: info.runtimeId, status: "ready" }));
 		await Promise.all([
@@ -180,12 +165,37 @@ async function attach(key: string): Promise<void> {
 			thread.sessionFile ? loadEntries(key) : Promise.resolve(),
 			initSubagents(key),
 		]);
+		// 待办「开始工作」：进程与模型都就绪后自动发出首条消息
+		const pending = getThread(key)?.pendingPrompt;
+		if (pending) {
+			update(key, () => ({ pendingPrompt: undefined }));
+			void sendPrompt(key, pending.message, pending.images);
+		}
 	} catch (error) {
 		update(key, () => ({ status: "error", error: error instanceof Error ? error.message : String(error) }));
+	} finally {
+		threadReady.get(key)?.resolve();
+		threadReady.delete(key);
 	}
 }
 
-function blankThread(cwd: string, sessionFile?: string, approvalMode: ApprovalMode = defaultApprovalMode): Thread {
+/** 等待线程首次就绪（含失败），供「开始工作」回填 sessionFile。 */
+export function whenThreadReady(key: string): Promise<void> {
+	const thread = getThread(key);
+	if (!thread || thread.status === "ready" || thread.status === "error") return Promise.resolve();
+	const existing = threadReady.get(key);
+	if (existing) return existing.promise;
+	const { promise, resolve } = Promise.withResolvers<void>();
+	threadReady.set(key, { promise, resolve });
+	return promise;
+}
+
+function blankThread(
+	cwd: string,
+	sessionFile?: string,
+	approvalMode: ApprovalMode = defaultApprovalMode,
+	options?: { model?: ModelRef; pendingPrompt?: PendingPrompt; title?: string },
+): Thread {
 	const now = Date.now();
 	return {
 		key: crypto.randomUUID(),
@@ -209,14 +219,19 @@ function blankThread(cwd: string, sessionFile?: string, approvalMode: ApprovalMo
 		uiRequests: [],
 		queuedPrompts: [],
 		notices: [],
-		todoPhases: [],
+		modelOverride: options?.model,
+		pendingPrompt: options?.pendingPrompt,
+		titleOverride: options?.title,
 		createdAt: now,
 		updatedAt: now,
 	};
 }
 
-export function createThread(cwd: string): string {
-	const thread = blankThread(cwd);
+export function createThread(
+	cwd: string,
+	options?: { model?: ModelRef; pendingPrompt?: PendingPrompt; title?: string },
+): string {
+	const thread = blankThread(cwd, undefined, defaultApprovalMode, options);
 	threads.push(thread);
 	commit();
 	void attach(thread.key);
@@ -277,6 +292,8 @@ export async function closeThread(key: string): Promise<void> {
 	if (!thread) return;
 	threads = threads.filter(t => t.key !== key);
 	commit();
+	threadReady.get(key)?.resolve();
+	threadReady.delete(key);
 	if (thread.runtimeId) await window.omp.closeRuntime(thread.runtimeId);
 }
 
@@ -510,17 +527,8 @@ function applyFrame(thread: Thread, frame: Frame): Partial<Thread> | null {
 		case "message_end": {
 			const message = frame.message as WireMessage;
 			const entries = [...thread.entries, messageEntry(message, thread.entries.at(-1))];
-			let nextTodoPhases = thread.todoPhases;
-			if (message.role === "toolResult" && "toolName" in message && message.toolName === "todo") {
-				if ("details" in message && message.details && typeof message.details === "object" && "phases" in message.details) {
-					const phases = message.details.phases;
-					if (Array.isArray(phases)) {
-						nextTodoPhases = phases as TodoPhase[];
-					}
-				}
-			}
-			if (message.role === "assistant") return { entries, stream: null, streamDone: false, todoPhases: nextTodoPhases, updatedAt: Date.now() };
-			return { entries, todoPhases: nextTodoPhases, updatedAt: Date.now() };
+			if (message.role === "assistant") return { entries, stream: null, streamDone: false, updatedAt: Date.now() };
+			return { entries, updatedAt: Date.now() };
 		}
 		case "tool_execution_start": {
 			const tool: ActiveTool = {
@@ -551,9 +559,6 @@ function applyFrame(thread: Thread, frame: Frame): Partial<Thread> | null {
 			next.delete(String(frame.toolCallId));
 			if (typeof window !== "undefined") {
 				window.dispatchEvent(new CustomEvent("omp:workspace-changed", { detail: { cwd: thread.cwd } }));
-			}
-			if (frame.toolName === "todo") {
-				void refreshState(thread.key);
 			}
 			if ((frame.toolName === "retain" || frame.toolName === "memory_retain") && typeof window !== "undefined") {
 				const existingTool = thread.activeTools.get(String(frame.toolCallId));
@@ -796,6 +801,54 @@ export function setActiveSubagent(key: string, id: string | null): void {
 	update(key, () => ({ activeSubagentId: id }));
 }
 
+/**
+ * 待办「开始工作」：新建对话，把待办内容作为首条消息发送。
+ * 图片附件以 ImageContent 传入，其他附件按路径写入提示词。
+ */
+export async function startTodoWork(
+	todo: TodoItem,
+	model?: ModelRef,
+): Promise<{ threadKey: string }> {
+	const images: ImageContent[] = [];
+	const fileRefs: string[] = [];
+	for (const att of todo.attachments) {
+		if (att.kind === "image") {
+			const data = att.blob ? await window.omp.readTodoAttachment(att.blob) : null;
+			if (data) images.push({ type: "image", data, mimeType: att.mimeType || "image/png" });
+			continue;
+		}
+		// 有原始绝对路径时优先给绝对路径，模型可直接 read
+		fileRefs.push(`- \`${att.path ?? att.name}\``);
+	}
+
+	const sections: string[] = [`待办：${todo.title}`];
+	if (todo.detail.trim()) sections.push(todo.detail.trim());
+	if (todo.phase) sections.push(`[分组]: ${todo.phase}`);
+	if (fileRefs.length > 0) sections.push(`[待办附件]:\n${fileRefs.join("\n")}`);
+
+	const message = sections.join("\n\n");
+	const threadKey = createThread(todo.cwd, {
+		model,
+		title: todo.title,
+		pendingPrompt: { message, images: images.length > 0 ? images : undefined },
+	});
+	playSound("switch");
+	window.dispatchEvent(new CustomEvent("omp:select-thread", { detail: { key: threadKey } }));
+
+	void (async () => {
+		await whenThreadReady(threadKey);
+		const thread = getThread(threadKey);
+		const sessionFile = thread?.sessionFile ?? thread?.state?.sessionFile;
+		await window.omp.recordTodoRun(todo.cwd, todo.id, {
+			sessionFile,
+			model: model ? { provider: model.provider, id: model.id, name: model.name } : undefined,
+			startedAt: Date.now(),
+		});
+	})();
+
+	return { threadKey };
+}
+
 export function setDefaultApprovalMode(mode: ApprovalMode): void {
 	defaultApprovalMode = mode;
 	void window.omp.setDefaultApprovalMode(mode);
@@ -805,6 +858,12 @@ export function getDefaultApprovalMode(): ApprovalMode {
 	return defaultApprovalMode;
 }
 
+
+/** 待办「开始工作」：新会话就绪后自动发送的首条消息 */
+export interface PendingPrompt {
+	message: string;
+	images?: ImageContent[];
+}
 
 export type { SessionStateSnapshot };
 

@@ -3,12 +3,15 @@ import { execFile } from "node:child_process";
 import { existsSync, watch } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import type { ApprovalMode, GitDiffOptions, OpenSessionOptions, Theme } from "@shared/ipc";
+import type { ApprovalMode, CatalogModel, GitDiffOptions, OpenSessionOptions, PromptFileId, Theme, TodoAttachmentInput, TodoCreateInput, TodoPatch, TodoRun } from "@shared/ipc";
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from "electron";
 import { gitCommitDetail, gitCommitDiff, gitDiff, gitLog, gitStatus, listDir, openInEditor, searchProjectFiles } from "./git-fs";
 import { cleanupTerminalProcesses, registerTerminalIpc } from "./terminal";
 import { detectDefaultApprovalMode, loginEnv, ompVersion, resolveOmp, RuntimePool } from "./runtimes";
 import { deleteSessionFile, forkSession, groupProjects, readSessionExcerpt, renameSessionFile, scanSessions, sessionsDir } from "./sessions";
+import { readPromptFiles, writePromptFile } from "./prompt-files";
+import { PROJECT_TODO_DEFINITION, PROJECT_TODO_TOOL, runProjectTodoTool } from "./host-tools";
+import { addAttachment, createTodo, deleteTodo, listTodos, readAttachment, recordRun, removeAttachment, reorderTodos, updateTodo } from "./todos";
 import { readStore, writeStore } from "./store";
 import { deleteMemoryItem, detectNewMemories, getOverallMemoryOverview } from "./memory";
 
@@ -26,6 +29,16 @@ const pool = new RuntimePool(
 			}
 		}, 750);
 	},
+	() => [PROJECT_TODO_DEFINITION],
+	(cwd, toolName, args) => {
+		const result = toolName === PROJECT_TODO_TOOL ? runProjectTodoTool(cwd, args) : undefined;
+		if (!result) {
+			return { content: [{ type: "text", text: `未知宿主工具：${toolName}` }], isError: true };
+		}
+		// 模型可能连续写入多条，统一在此广播，渲染进程只需刷新即可
+		win?.webContents.send("omp:todos-changed", cwd);
+		return result;
+	},
 );
 
 /** 与 tokens.css 的 --bg 保持一致，供窗口首次绘制使用。 */
@@ -39,6 +52,44 @@ const WINDOW_BACKGROUND: Record<Theme, { dark: string; light: string }> = {
 function windowBackground(): string {
 	const colors = WINDOW_BACKGROUND[readStore().theme ?? "default"] ?? WINDOW_BACKGROUND.default;
 	return nativeTheme.shouldUseDarkColors ? colors.dark : colors.light;
+}
+
+/** `omp models --json` 结果缓存：单次约 1.2s，避免每次打开选择器都重新拉起。 */
+let catalogCache: { at: number; models: CatalogModel[] } | null = null;
+const CATALOG_TTL_MS = 10 * 60 * 1000;
+
+async function listCatalogModels(): Promise<CatalogModel[]> {
+	if (catalogCache && Date.now() - catalogCache.at < CATALOG_TTL_MS) return catalogCache.models;
+	const ompPath = resolveOmp();
+	if (!ompPath) return [];
+	try {
+		const { stdout } = await promisify(execFile)(ompPath, ["models", "--json"], {
+			env: loginEnv(),
+			maxBuffer: 16 * 1024 * 1024,
+			timeout: 30000,
+		});
+		const parsed = JSON.parse(stdout) as { models?: unknown };
+		const raw = Array.isArray(parsed.models) ? parsed.models : [];
+		const models: CatalogModel[] = [];
+		for (const entry of raw) {
+			const item = entry as Record<string, unknown>;
+			if (typeof item.provider !== "string" || typeof item.id !== "string") continue;
+			models.push({
+				provider: item.provider,
+				id: item.id,
+				name: typeof item.name === "string" ? item.name : undefined,
+				selector: typeof item.selector === "string" ? item.selector : undefined,
+				thinking: Array.isArray(item.thinking)
+					? item.thinking.filter((level): level is string => typeof level === "string")
+					: undefined,
+				contextWindow: typeof item.contextWindow === "number" ? item.contextWindow : null,
+			});
+		}
+		catalogCache = { at: Date.now(), models };
+		return models;
+	} catch {
+		return catalogCache?.models ?? [];
+	}
 }
 
 function cleanTitle(raw: string): string | null {
@@ -158,6 +209,8 @@ function registerIpc(): void {
 		const store = readStore();
 		writeStore({ ...store, defaultApprovalMode: mode });
 	});
+	ipcMain.handle("omp:read-prompt-files", () => readPromptFiles());
+	ipcMain.handle("omp:write-prompt-file", (_e, id: PromptFileId, content: string) => writePromptFile(id, content));
 	ipcMain.handle("omp:get-configs", async () => {
 		try {
 			const { stdout } = await promisify(execFile)("omp", ["config", "list", "--json"]);
@@ -205,6 +258,44 @@ function registerIpc(): void {
 	ipcMain.handle("omp:install-registry-skill", (_e, name: string, isGlobal?: boolean, cwd?: string) => installSkillshare(name, isGlobal, cwd));
 	ipcMain.handle("omp:get-memory-overview", (_e, cwd?: string) => getOverallMemoryOverview(cwd));
 	ipcMain.handle("omp:delete-memory", (_e, bankId: string, id: string, type: "fact" | "episode") => deleteMemoryItem(bankId, id, type));
+	ipcMain.handle("omp:todos-list", (_e, cwd: string) => listTodos(cwd));
+	ipcMain.handle("omp:todos-create", (_e, input: TodoCreateInput) => {
+		const todo = createTodo(input);
+		win?.webContents.send("omp:todos-changed", todo.cwd);
+		return todo;
+	});
+	ipcMain.handle("omp:todos-update", (_e, cwd: string, id: string, patch: TodoPatch) => {
+		const todo = updateTodo(cwd, id, patch);
+		win?.webContents.send("omp:todos-changed", cwd);
+		return todo;
+	});
+	ipcMain.handle("omp:todos-delete", (_e, cwd: string, id: string) => {
+		const ok = deleteTodo(cwd, id);
+		if (ok) win?.webContents.send("omp:todos-changed", cwd);
+		return ok;
+	});
+	ipcMain.handle("omp:todos-reorder", (_e, cwd: string, orderedIds: string[]) => {
+		const items = reorderTodos(cwd, orderedIds);
+		win?.webContents.send("omp:todos-changed", cwd);
+		return items;
+	});
+	ipcMain.handle("omp:todos-add-attachment", (_e, input: TodoAttachmentInput) => {
+		const todo = addAttachment(input);
+		win?.webContents.send("omp:todos-changed", input.cwd);
+		return todo;
+	});
+	ipcMain.handle("omp:todos-remove-attachment", (_e, cwd: string, todoId: string, attachmentId: string) => {
+		const todo = removeAttachment(cwd, todoId, attachmentId);
+		win?.webContents.send("omp:todos-changed", cwd);
+		return todo;
+	});
+	ipcMain.handle("omp:todos-read-attachment", (_e, blob: string) => readAttachment(blob));
+	ipcMain.handle("omp:todos-record-run", (_e, cwd: string, todoId: string, run: Omit<TodoRun, "id">) => {
+		const todo = recordRun(cwd, todoId, run);
+		win?.webContents.send("omp:todos-changed", cwd);
+		return todo;
+	});
+	ipcMain.handle("omp:list-catalog-models", () => listCatalogModels());
 	ipcMain.handle("omp:generate-title", async (_e, prompt: string) => {
 		const ompPath = resolveOmp();
 		if (!ompPath) return null;

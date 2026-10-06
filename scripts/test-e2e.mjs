@@ -1,15 +1,62 @@
 // 端到端自动化冒烟测试（通过 Chrome 调试协议 CDP 驱动真实 Electron 实例）
+//
+// 隔离：测试会向会话注入提示词，必须与真实用户数据完全隔离，否则会污染
+// ~/.omp/agent/sessions 下的真实会话（历史上已多次发生）。
+//   - PI_CODING_AGENT_DIR：omp 的会话/配置目录（src/main/sessions.ts 读取）
+//   - --user-data-dir：Electron 的 userData，即 todos.json / omp-gui.json 所在处
 import { spawn } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 
 const PORT = 9499;
+const SANDBOX = mkdtempSync(join(tmpdir(), "omp-e2e-"));
+const AGENT_DIR = join(SANDBOX, "agent");
+const USER_DATA_DIR = join(SANDBOX, "userdata");
+
+/** 空沙箱里没有任何项目，测试需要至少一个可打开的项目目录。 */
+function seedSandbox() {
+	mkdirSync(AGENT_DIR, { recursive: true });
+	mkdirSync(USER_DATA_DIR, { recursive: true });
+	writeFileSync(
+		join(USER_DATA_DIR, "omp-gui.json"),
+		JSON.stringify({ projects: [process.cwd()], hidden: [] }, null, 2),
+	);
+}
+
+/**
+ * 断言沙箱确实在真实数据目录之外。
+ * 若未来有人删掉 PI_CODING_AGENT_DIR / --user-data-dir，测试会直接失败，
+ * 而不是把伪造的 user 消息写进 ~/.omp/agent/sessions 下的真实会话。
+ */
+function assertIsolated() {
+	const realAgent = join(homedir(), ".omp", "agent");
+	for (const [label, dir] of [["agent", AGENT_DIR], ["userdata", USER_DATA_DIR]]) {
+		const resolved = resolve(dir);
+		if (resolved === resolve(realAgent) || resolved.startsWith(`${resolve(realAgent)}/`)) {
+			throw new Error(`测试未隔离：${label} 目录指向真实数据 ${resolved}`);
+		}
+		if (!resolved.startsWith(resolve(tmpdir()))) {
+			throw new Error(`测试未隔离：${label} 目录不在临时目录内 ${resolved}`);
+		}
+	}
+}
 
 async function run() {
+	assertIsolated();
+	seedSandbox();
+	console.log("沙箱目录:", SANDBOX);
 	console.log("启动 Electron 测试实例 (CDP 端口", PORT, ")...");
-	const electron = spawn("npx", ["electron", ".", `--remote-debugging-port=${PORT}`], {
-		stdio: ["ignore", "pipe", "pipe"],
-		// 独立进程组：结束时连同 npx 拉起的 Electron 子进程一起清理
-		detached: true,
-	});
+	const electron = spawn(
+		"npx",
+		["electron", ".", `--remote-debugging-port=${PORT}`, `--user-data-dir=${USER_DATA_DIR}`],
+		{
+			stdio: ["ignore", "pipe", "pipe"],
+			// 独立进程组：结束时连同 npx 拉起的 Electron 子进程一起清理
+			detached: true,
+			env: { ...process.env, PI_CODING_AGENT_DIR: AGENT_DIR },
+		},
+	);
 	const exited = new Promise(r => electron.once("exit", r));
 
 	await new Promise(r => setTimeout(r, 2500));
@@ -385,13 +432,144 @@ async function run() {
 		await evalJs('document.querySelector(".cp-att-remove")?.click()');
 		await new Promise(r => setTimeout(r, 200));
 
-		console.log("15. 冒烟测试全部通过！");
+		console.log("15. 测试项目待办清单面板（新增 / 持久化 / 排序 / 删除）...");
+		// 打开右侧栏并切到「待办」Tab
+		await evalJs('document.querySelector(".mh-sidebar-toggle")?.click()');
+		await new Promise(r => setTimeout(r, 300));
+		const todoTabClicked = await evalJs(`(() => {
+			const tab = [...document.querySelectorAll(".rp-tab")].find(b => b.textContent.includes("待办"));
+			if (!tab) return false;
+			tab.click();
+			return true;
+		})()`);
+		if (!todoTabClicked) throw new Error("未找到「待办」Tab");
+		await new Promise(r => setTimeout(r, 300));
+		const todoPanelOpen = await evalJs('!!document.querySelector(".td-panel")');
+		if (!todoPanelOpen) throw new Error("待办面板 .td-panel 未渲染");
+
+		// 新增一条待办
+		const created = await evalJs(`(async () => {
+			const setVal = (el, val) => {
+				const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+				Object.getOwnPropertyDescriptor(proto, "value").set.call(el, val);
+				el.dispatchEvent(new Event("input", { bubbles: true }));
+			};
+			document.querySelector(".td-add-btn")?.click();
+			await new Promise(r => setTimeout(r, 300));
+			const titleInput = document.querySelector(".td-editor-title");
+			if (!titleInput) return { error: "未进入新增编辑器 .td-editor-title" };
+			setVal(titleInput, "E2E 待办：验证面板");
+			setVal(document.querySelector(".td-editor-detail"), "由 e2e 冒烟测试创建");
+			await new Promise(r => setTimeout(r, 150));
+			document.querySelector(".td-editor-save")?.click();
+			await new Promise(r => setTimeout(r, 700));
+			const cards = [...document.querySelectorAll(".td-card-title")].map(el => el.textContent);
+			return { cards };
+		})()`);
+		if (created.error) throw new Error(created.error);
+		if (!created.cards?.some(t => t.includes("E2E 待办：验证面板"))) {
+			throw new Error("新增待办后卡片未出现，当前卡片: " + JSON.stringify(created.cards));
+		}
+		console.log("   待办新增成功，面板现有卡片:", JSON.stringify(created.cards));
+
+		// 通过 IPC 校验已落盘（重启后仍在的等价证据）
+		const persisted = await evalJs(`(async () => {
+			const threads = window.__ompThreads.getThreads();
+			const cwd = threads[0].cwd;
+			const items = await window.omp.listTodos(cwd);
+			return items.map(i => ({ title: i.title, status: i.status, phase: i.phase, source: i.source }));
+		})()`);
+		const stored = persisted?.find(i => i.title === "E2E 待办：验证面板");
+		if (!stored) throw new Error("待办未写入 todos.json: " + JSON.stringify(persisted));
+		console.log("   待办已持久化:", JSON.stringify(stored));
+
+		// 状态切换：待办 -> 进行中
+		await evalJs(`(() => {
+			const card = [...document.querySelectorAll(".td-card")].find(c => c.textContent.includes("E2E 待办：验证面板"));
+			card?.querySelector(".td-status-dot")?.click();
+		})()`);
+		await new Promise(r => setTimeout(r, 400));
+		const statusAfter = await evalJs(`(async () => {
+			const threads = window.__ompThreads.getThreads();
+			const items = await window.omp.listTodos(threads[0].cwd);
+			return items.find(i => i.title === "E2E 待办：验证面板")?.status;
+		})()`);
+		if (statusAfter !== "doing") throw new Error("点击状态圆点未把待办切到 doing，实得: " + statusAfter);
+		console.log("   状态切换成功:", statusAfter);
+
+		// 删除待办
+		await evalJs(`(() => {
+			const card = [...document.querySelectorAll(".td-card")].find(c => c.textContent.includes("E2E 待办：验证面板"));
+			card?.querySelector(".td-icon-btn.is-danger")?.click();
+		})()`);
+		await new Promise(r => setTimeout(r, 400));
+		const afterDelete = await evalJs(`(async () => {
+			const threads = window.__ompThreads.getThreads();
+			const items = await window.omp.listTodos(threads[0].cwd);
+			return items.filter(i => i.title === "E2E 待办：验证面板").length;
+		})()`);
+		if (afterDelete !== 0) throw new Error("删除待办失败，仍存在 " + afterDelete + " 条");
+		console.log("   待办删除成功，已从 todos.json 移除");
+
+		console.log("16. 测试新建待办时粘贴截图（截图仅走 clipboardData.items）...");
+		const pasteResult = await evalJs(`(async () => {
+			const setVal = (el, val) => {
+				Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(el, val);
+				el.dispatchEvent(new Event("input", { bubbles: true }));
+			};
+			document.querySelector(".td-add-btn")?.click();
+			await new Promise(r => setTimeout(r, 300));
+			setVal(document.querySelector(".td-editor-title"), "E2E 粘贴截图待办");
+			const pngBytes = new Uint8Array([
+				137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1,
+				8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 10, 73, 68, 65, 84, 120, 156, 99, 0, 1, 0, 0,
+				5, 0, 1, 13, 10, 45, 180, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130
+			]);
+			const file = new File([pngBytes], "screenshot.png", { type: "image/png" });
+			const dt = new DataTransfer();
+			dt.items.add(file);
+			// Electron 里截图粘贴的真实形态：items 有文件但 files 为空
+			Object.defineProperty(dt, "files", { value: [] });
+			document.querySelector(".td-editor")?.dispatchEvent(
+				new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: dt }),
+			);
+			await new Promise(r => setTimeout(r, 600));
+			const staged = document.querySelectorAll(".td-editor-att.is-staged").length;
+			document.querySelector(".td-editor-save")?.click();
+			await new Promise(r => setTimeout(r, 1200));
+			const threads = window.__ompThreads.getThreads();
+			const items = await window.omp.listTodos(threads[0].cwd);
+			const saved = items.find(i => i.title === "E2E 粘贴截图待办");
+			return { staged, attachments: saved?.attachments?.map(a => ({ kind: a.kind, blob: !!a.blob })) ?? null };
+		})()`);
+		if (pasteResult.staged !== 1) {
+			throw new Error(`新建待办粘贴截图未暂存附件，实得: ${JSON.stringify(pasteResult)}`);
+		}
+		if (pasteResult.attachments?.[0]?.kind !== "image" || !pasteResult.attachments[0].blob) {
+			throw new Error("粘贴的截图未随待办落盘为 blob: " + JSON.stringify(pasteResult));
+		}
+		console.log("   粘贴截图成功，已随新建待办落盘:", JSON.stringify(pasteResult.attachments));
+
+		// 缩略图渲染 + 清理
+		const thumbCount = await evalJs('document.querySelectorAll(".td-att-thumb").length');
+		if (thumbCount < 1) throw new Error("待办卡片未渲染图片缩略图");
+		console.log("   卡片缩略图渲染正常:", thumbCount);
+		await evalJs(`(async () => {
+			const threads = window.__ompThreads.getThreads();
+			const items = await window.omp.listTodos(threads[0].cwd);
+			for (const it of items) if (it.title === "E2E 粘贴截图待办") await window.omp.deleteTodo(threads[0].cwd, it.id);
+		})()`);
+
+		console.log("17. 冒烟测试全部通过！");
 		ws.close();
 	} finally {
 		try {
 			process.kill(-electron.pid, "SIGTERM");
 		} catch {}
 		await Promise.race([exited, new Promise(r => setTimeout(r, 5000))]);
+		try {
+			rmSync(SANDBOX, { recursive: true, force: true });
+		} catch {}
 	}
 }
 

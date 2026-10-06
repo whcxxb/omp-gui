@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { ApprovalMode, OpenSessionOptions, RuntimeInfo, RuntimeMessage } from "@shared/ipc";
+import type { ApprovalMode, HostToolDefinition, HostToolResult, OpenSessionOptions, RuntimeInfo, RuntimeMessage } from "@shared/ipc";
 import { OmpRpc } from "./omp-rpc";
 
 /** 最多保留的空闲进程数（正在执行的不计入淘汰） */
@@ -72,12 +72,18 @@ interface Entry {
 	streaming: boolean;
 }
 
+/** 宿主工具的执行回调：由主进程实现，结果直接回写给 omp。 */
+export type HostToolHandler = (cwd: string, toolName: string, args: Record<string, unknown>) => HostToolResult;
+
 export class RuntimePool {
 	#entries = new Map<string, Entry>();
 
 	constructor(
 		private readonly emit: Emit,
 		private readonly onAgentEnd?: (cwd: string) => void,
+		/** 每次启动进程时注册的宿主工具（模型可调用） */
+		private readonly hostTools?: (cwd: string) => HostToolDefinition[],
+		private readonly onHostToolCall?: HostToolHandler,
 	) {}
 
 	async open(options: OpenSessionOptions): Promise<RuntimeInfo> {
@@ -88,6 +94,11 @@ export class RuntimePool {
 		this.#entries.set(rpc.id, entry);
 
 		rpc.on("frame", (frame: Record<string, unknown>) => {
+			// 宿主工具调用由主进程就地执行并回包，不下发渲染进程
+			if (frame.type === "host_tool_call") {
+				void this.#runHostTool(rpc, frame);
+				return;
+			}
 			if (frame.type === "agent_start") entry.streaming = true;
 			else if (frame.type === "agent_end") {
 				entry.streaming = false;
@@ -106,6 +117,14 @@ export class RuntimePool {
 			if (options.sessionFile) {
 				const result = await rpc.request<{ cancelled: boolean }>("switch_session", { sessionPath: options.sessionFile });
 				if (result?.cancelled) throw new Error("切换会话被取消");
+			}
+			// 注册必须晚于 switch_session：切换会话会重建会话态
+			const tools = this.hostTools?.(options.cwd) ?? [];
+			if (tools.length > 0) {
+				await rpc.request("set_host_tools", { tools });
+			}
+			if (options.model) {
+				await rpc.request("set_model", { provider: options.model.provider, modelId: options.model.id });
 			}
 		} catch (error) {
 			rpc.dispose();
@@ -141,5 +160,23 @@ export class RuntimePool {
 			this.close(id);
 			this.emit(id, { kind: "exit", code: null, signal: "evicted" });
 		}
+	}
+
+	/** 执行模型发起的宿主工具调用，并把结果回写给 omp。 */
+	async #runHostTool(rpc: OmpRpc, frame: Record<string, unknown>): Promise<void> {
+		const id = String(frame.id);
+		const toolName = String(frame.toolName);
+		const args = (frame.arguments ?? {}) as Record<string, unknown>;
+		let result: HostToolResult;
+		try {
+			if (!this.onHostToolCall) throw new Error(`未注册宿主工具处理器：${toolName}`);
+			result = this.onHostToolCall(rpc.cwd, toolName, args);
+		} catch (error) {
+			result = {
+				content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
+				isError: true,
+			};
+		}
+		rpc.send({ type: "host_tool_result", id, result, isError: result.isError === true });
 	}
 }

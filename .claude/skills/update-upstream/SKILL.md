@@ -87,6 +87,22 @@ pnpm test:e2e
 
 `pnpm test:e2e` automatically spawns the Electron app on CDP, verifies sidebar project rendering, session mounting, approval mode switching, and file drag-and-drop.
 
+#### ⚠️ 测试隔离是硬性要求（历史事故）
+`test-e2e.mjs` 会向会话注入提示词（排队/干预测试）。这些提示词以 `attribution: "user"` 落盘，
+**看起来就像用户本人发的**。因此测试必须完全运行在临时沙箱中：
+
+- `PI_CODING_AGENT_DIR` → omp 的会话目录（`src/main/sessions.ts` 读取）
+- `--user-data-dir` → Electron 的 userData（`todos.json` / `omp-gui.json`）
+- 两者均指向 `mkdtempSync()` 创建的目录，结束时 `rmSync` 清理
+- `assertIsolated()` 会断言沙箱不在真实数据目录内，配置被改错时**直接失败**
+
+**绝对不要**为了"调试方便"去掉这两个环境变量。2026-10 前该脚本曾裸启动 Electron，
+导致 12 个真实会话被写入 100+ 条伪造的 user 消息（如「立即调整为红色按钮」），
+清理时需按 splice 语义修复 parentId 链，代价很高。
+
+同理，任何**手写的临时探针**脚本（CDP 驱动真实 Electron）也必须带上这两个变量，
+或改用 `omp --no-session` / `--mode rpc` 直连，不要在交互式会话里发真实 prompt。
+
 ---
 
 ### Step 5: Git Commit

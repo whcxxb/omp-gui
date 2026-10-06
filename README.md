@@ -133,9 +133,19 @@ pnpm sync:collab  # 从官方仓库同步 collab-web 渲染组件（可传本地
 ```
 
 目录结构：
-- `src/main/`：主进程。`omp-rpc.ts` 单个 RPC 进程（分帧、分块重组、请求配对），`runtimes.ts` 进程池（空闲进程按最近使用回收，最多保留 4 个），`sessions.ts` 扫描 `~/.omp/agent/sessions` 并按项目分组。
+- `src/main/`：主进程。`omp-rpc.ts` 单个 RPC 进程（分帧、分块重组、请求配对），`runtimes.ts` 进程池（空闲进程按最近使用回收，最多保留 4 个），`sessions.ts` 扫描 `~/.omp/agent/sessions` 并按项目分组，`todos.ts` 项目待办持久化，`host-tools.ts` 注册给模型的宿主工具。
 - `src/preload/`：通过 `window.omp` 暴露 IPC。
 - `src/renderer/src/collab/`：从官方 `packages/collab-web` 同步的工具卡片与 Markdown 渲染，不要手改，版本见 `UPSTREAM.json`。
 - `src/renderer/src/state/threads.ts`：把 RPC 事件归并为对话状态。
+
+本地数据（不写入你的代码仓库）：
+- `~/Library/Application Support/omp-gui/omp-gui.json`：项目列表、主题等 GUI 配置。
+- `~/Library/Application Support/omp-gui/todos.json`：项目待办清单，按项目路径（cwd）隔离。
+- `~/Library/Application Support/omp-gui/todo-blobs/<sha256>`：待办附件（图片/文件）内容寻址存储，删除待办时自动回收无引用的 blob。
+
+项目待办（右侧栏「待办」Tab，`⌘⇧T`）：
+- 支持新增/编辑 Markdown 正文、拖拽或粘贴图片与文件、状态切换、拖拽排序、按阶段分组。
+- 「开始工作」可为该待办新建对话并指定模型，待办内容与图片作为首条消息发送，执行记录可回跳该会话。
+- 模型可通过 `project_todo` 工具直接读取与维护待办（基于 omp RPC 的宿主工具通道 `set_host_tools`），写入项在面板中带「模型」徽标。
 
 跟随 omp 更新：升级 omp 后运行 `pnpm sync:collab`，再 `pnpm typecheck` 确认兼容。

@@ -10,6 +10,7 @@ import {
 	Keyboard,
 	Palette,
 	RotateCw,
+	ScrollText,
 	Search,
 	Settings,
 	Shield,
@@ -26,6 +27,7 @@ import { THEMES, type Theme, applyTheme, loadTheme } from "@/lib/theme";
 import { getSoundVolume, isSoundEnabled, playSound, setSoundEnabled, setSoundVolume } from "@/lib/sound";
 import { SkillManager } from "./SkillManager";
 import { MemoryGraphView } from "./MemoryGraphView";
+import { PromptFilesPanel } from "./PromptFilesPanel";
 
 import upstreamMeta from "@/collab/UPSTREAM.json";
 export interface SettingsModalProps {
@@ -41,6 +43,7 @@ export type SettingsTab =
 	| "appearance"
 	| "approvals"
 	| "reasoning"
+	| "prompts"
 	| "memory"
 	| "skills"
 	| "engine"
@@ -58,6 +61,7 @@ const TABS: TabItem[] = [
 	{ id: "appearance", label: "外观与主题", desc: "配色风格与界面布局", icon: <Palette size={15} /> },
 	{ id: "approvals", label: "权限与审批", desc: "工具调用与安全策略", icon: <Shield size={15} /> },
 	{ id: "reasoning", label: "模型与推理", desc: "思考深度与推理设置", icon: <Bot size={15} /> },
+	{ id: "prompts", label: "全局提示词", desc: "AGENTS / RULES / 系统提示词", icon: <ScrollText size={15} /> },
 	{ id: "memory", label: "记忆与知识", desc: "长效记忆 (Mnemopi/Hermes)", icon: <Brain size={15} /> },
 	{ id: "skills", label: "Skill 技能管理", desc: "项目与全局专业技能扩展", icon: <Sparkles size={15} /> },
 	{ id: "engine", label: "OMP 核心工具", desc: "LSP、终端与环境感知", icon: <Cpu size={15} /> },
@@ -597,6 +601,17 @@ export function SettingsModal(props: SettingsModalProps): ReactNode {
 										</div>
 									</div>
 								</div>
+							</div>
+						)}
+
+						{/* 5. 全局提示词与指令文件 */}
+						{activeTab === "prompts" && (
+							<div className="sp-section">
+								<h2 className="sp-section-heading">全局提示词与指令</h2>
+								<p className="sp-section-sub">
+									管理 OMP 用户级 agent 目录下的上下文指令与系统提示词覆写文件，改动对新会话生效。
+								</p>
+								<PromptFilesPanel />
 							</div>
 						)}
 

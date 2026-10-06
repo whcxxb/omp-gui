@@ -29,6 +29,18 @@
 - [x] **Feature-03: 会话分支派生 (Branch / Fork Session)** (已于 2026-10-02 落地) [参考 pi-desktop]
 - [x] **Feature-04: Agent / Plan 双模式切换门禁 (ModePicker)** (已于 2026-10-03 落地) [参考 pi-desktop]
 - [x] **Feature-07: Markdown 渲染层原生 Mermaid 流程图与架构图** (已于 2026-10-03 落地) [参考 pi-desktop]
+- [x] **Feature-13: 右侧栏 Tab 自适应收窄（窄宽度只留图标，禁止文字折行）** (已于 2026-10-06 落地)
+  - *实现*：`.rp-panel` 声明 `container: rp / inline-size`，`.rp-tab` 加 `white-space: nowrap` 与 `flex: 0 0 auto`；`@container rp (max-width: 320px)` 内隐藏文字标签、收窄内边距。实测四标签齐全需 251px，260px 面板仅余 218px 可用，故阈值取 320px，默认宽度 340px 不受影响。
+- [x] **Feature-14: 设置页全局提示词（指令）展示与编辑** (已于 2026-10-06 落地)
+  - *实现*：新增 `src/main/prompt-files.ts` 读写 `~/.omp/agent/` 下的 `AGENTS.md`、`RULES.md`、`APPEND_SYSTEM.md`、`SYSTEM.md`、`PERSONALITY.md`；设置页新增「全局提示词」Tab（`PromptFilesPanel.tsx`），支持就地编辑、还原、在外部编辑器打开；清空保存会备份为 `.bak` 并停用该文件。已验证写入内容会被 OMP 注入系统提示并影响模型输出。
+- [x] **Fix: 移除固定在底部的 Todo HUD，任务看板回归对话流** (已于 2026-10-06 落地)
+  - *问题*：`TodoHud` 挂载在 `.th-column` 末尾（滚动消息列表之外），导致上一轮生成的 todo 一直钉在底部，且与上游 `todo` 工具卡内联看板重复。
+  - *改动*：删除 `TodoHud.tsx` 及其 CSS，并移除 `Thread.todoPhases` / `SessionStateSnapshot.todoPhases` 整条状态链路（`threads.ts` 的 `loadEntries` 扫描、`message_end` 解析、`tool_execution_end` 刷新、`refreshState` 合并）。任务看板统一由上游 `todo` 工具卡按消息位置内联渲染，天然跟随对话、不影响继续对话。
+- [x] **Feature-15: 项目待办清单（右侧栏工作区 + 模型可维护）** (已于 2026-10-06 落地)
+  - *存储*：`userData/todos.json`（按 cwd 隔离，原子写）+ `userData/todo-blobs/<sha256>`（图片/附件内容寻址去重，删除时回收孤儿 blob）。刻意不写入仓库、也不复用会话级 `todo` 工具状态。
+  - *交互*：右侧栏新增「待办」Tab（`⌘⇧T`），支持新增/编辑（Markdown 正文、拖拽或粘贴图片/文件作附件）、状态圆点切换、拖拽排序、按阶段分组、`未完成/全部/已归档` 过滤。
+  - *开始工作*：卡片 ▶ 按钮可指定模型，新建对话并自动发送待办内容（图片转 `ImageContent`，文件按路径写入提示词）；模型切换在主进程 `RuntimePool.open()` 内完成，消除 ready 竞态；执行记录回填 `sessionFile`，点击可重新打开该会话。
+  - *模型可维护*：通过 omp RPC 宿主工具通道（`set_host_tools` → `host_tool_call` → `host_tool_result`）注册 `project_todo` 工具，模型可直接 `view/add/update/done/drop/rm` 待办；写入项带 `source:"model"` 徽标，面板实时同步。工具在每次 `RuntimePool.open()` 重放注册，切审批模式重启进程后依然可用。
 
 ### 待实现候选功能（每日筛选 2 条实施）
 - [ ] **Feature-05: 全局会话与提问全文检索 (Omni Search)** [参考 pi-desktop]
@@ -51,3 +63,6 @@
 | 2026-10-01 | can1357/oh-my-pi 同步至 18.4.8 (717f97f) | 侧边栏会话置顶(Pin)与归档(Archive) | a9beee4 / e576764 | 已落地 |
 | 2026-10-02 | 基础样式重构 + 浮岛 Composer + 对话流操作栏 | 输入框 @ 文件提示 (Feature-02) + 会话分支派生 (Feature-03) | ee4a06c | 已落地 |
 | 2026-10-03 | 对话框质感与遮挡修复 + Todo 随流 | 编辑/计划/问答模式门禁 (Feature-04) + Todo 归入对话流 | ee4a06c | 已落地 |
+| 2026-10-05 | can1357/oh-my-pi 同步至 18.6.2 (1c0993c) | Shiki 高亮细粒度按需加载与 LRU 缓存 + marked lexer 分段重构 | 270754e / 66c857d / 5c71928 / c7ccdf8 | 已落地 |
+| 2026-10-06 | — | 右侧栏 Tab 窄宽度自适应 (Feature-13) + 设置页全局提示词编辑 (Feature-14) + 移除固定底部 Todo HUD | 待提交 | 已落地 |
+| 2026-10-06 | — | 项目待办清单：右侧栏工作区 + 模型可维护 (Feature-15) | 待提交 | 已落地 |

@@ -177,6 +177,19 @@ export function App(): ReactNode {
 		setActiveKey(openThread(session.cwd, session.file));
 	}, []);
 
+	// 待办「执行记录」点击后打开对应会话
+	useEffect(() => {
+		const onOpenFile = (e: Event): void => {
+			const detail = (e as CustomEvent<{ cwd: string; sessionFile: string }>).detail;
+			if (!detail?.sessionFile) return;
+			playSound("switch");
+			setCurrentProject(detail.cwd);
+			setActiveKey(openThread(detail.cwd, detail.sessionFile));
+		};
+		window.addEventListener("omp:open-session-file", onOpenFile);
+		return () => window.removeEventListener("omp:open-session-file", onOpenFile);
+	}, []);
+
 	// 启动时自动恢复上一次打开的对话（或最新项目最新会话）
 	const restoredRef = useRef(false);
 	useEffect(() => {
@@ -336,6 +349,13 @@ export function App(): ReactNode {
 				}
 				return;
 			}
+			if (e.shiftKey && (e.key === "t" || e.key === "T")) {
+				if (activeKey) {
+					e.preventDefault();
+					toggleRightPanel(activeKey, "todos");
+				}
+				return;
+			}
 			if (e.key === "," || e.key === "，") {
 				e.preventDefault();
 				setSettingsOpen(v => !v);
@@ -457,7 +477,7 @@ function ThreadPane(props: {
 	onToggleSidebar(): void;
 }): ReactNode {
 	const { thread, sidebarOpen, onToggleSidebar } = props;
-	const title = thread.state?.sessionName || firstPrompt(thread) || (thread.entries.length === 0 ? "新对话" : "未���名对话");
+	const title = thread.state?.sessionName || thread.titleOverride || firstPrompt(thread) || (thread.entries.length === 0 ? "新对话" : "未命名对话");
 	const isLoadingSession = Boolean(thread.sessionFile && thread.entries.length === 0 && thread.status === "starting");
 	const empty = !isLoadingSession && thread.entries.length === 0 && !thread.stream && !thread.working;
 	const projectName = thread.cwd.split("/").filter(Boolean).at(-1) ?? thread.cwd;

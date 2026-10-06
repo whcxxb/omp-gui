@@ -13,7 +13,6 @@ import type {
 } from "@/collab/wire/index";
 import { editAndResendPrompt, forkThread } from "@/state/threads";
 import type { Thread } from "@/state/types";
-import { TodoHud } from "./TodoHud";
 const FOLLOW_THRESHOLD_PX = 80;
 /** 长会话只挂载尾部若干条，向上滚动再逐批加载 */
 const WINDOW = 120;
@@ -550,7 +549,6 @@ export function ThreadView({ thread }: { thread: Thread }): ReactNode {
 							<span className="th-shimmer">正在思考与构思...</span>
 						</div>
 					)}
-					<TodoHud thread={thread} />
 				</div>
 			</div>
 			{showScrollBottom && (

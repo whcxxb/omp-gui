@@ -1,6 +1,7 @@
 import {
 	FolderTree,
 	GitBranch,
+	ListChecks,
 	Terminal,
 	Workflow,
 	X,
@@ -12,6 +13,7 @@ import { SubagentPanel } from "../SubagentPanel";
 import { FileTree } from "./FileTree";
 import { GitPanel } from "./GitPanel";
 import { TerminalPanel } from "./TerminalPanel";
+import { TodoPanel } from "./TodoPanel";
 const RIGHT_PANEL_WIDTH_KEY = "omp-gui.right-panel-width";
 const DEFAULT_RIGHT_PANEL_WIDTH = 340;
 const MIN_WIDTH = 260;
@@ -117,6 +119,7 @@ export function RightPanel({ thread, onInsertText }: RightPanelProps): ReactNode
 					<button
 						type="button"
 						className={`rp-tab${activeTab === "files" ? " is-active" : ""}`}
+						title="文件"
 						onClick={() => setRightPanelTab(thread.key, "files")}
 					>
 						<FolderTree size={13} />
@@ -126,6 +129,7 @@ export function RightPanel({ thread, onInsertText }: RightPanelProps): ReactNode
 					<button
 						type="button"
 						className={`rp-tab${activeTab === "git" ? " is-active" : ""}`}
+						title="Git 变更"
 						onClick={() => setRightPanelTab(thread.key, "git")}
 					>
 						<GitBranch size={13} />
@@ -136,6 +140,7 @@ export function RightPanel({ thread, onInsertText }: RightPanelProps): ReactNode
 					<button
 						type="button"
 						className={`rp-tab${activeTab === "terminal" ? " is-active" : ""}`}
+						title="终端"
 						onClick={() => setRightPanelTab(thread.key, "terminal")}
 					>
 						<Terminal size={13} />
@@ -145,11 +150,22 @@ export function RightPanel({ thread, onInsertText }: RightPanelProps): ReactNode
 					<button
 						type="button"
 						className={`rp-tab${activeTab === "subagents" ? " is-active" : ""}`}
+						title="子任务"
 						onClick={() => setRightPanelTab(thread.key, "subagents")}
 					>
 						<Workflow size={13} />
 						<span>子任务</span>
 						{subagentCount > 0 && <span className="rp-badge is-sub">{subagentCount}</span>}
+					</button>
+
+					<button
+						type="button"
+						className={`rp-tab${activeTab === "todos" ? " is-active" : ""}`}
+						title="项目待办清单"
+						onClick={() => setRightPanelTab(thread.key, "todos")}
+					>
+						<ListChecks size={13} />
+						<span>待办</span>
 					</button>
 				</div>
 
@@ -168,6 +184,7 @@ export function RightPanel({ thread, onInsertText }: RightPanelProps): ReactNode
 				{activeTab === "git" && <GitPanel cwd={thread.cwd} onInsertText={onInsertText} />}
 				{activeTab === "terminal" && <TerminalPanel cwd={thread.cwd} />}
 				{activeTab === "subagents" && <SubagentPanel thread={thread} />}
+				{activeTab === "todos" && <TodoPanel cwd={thread.cwd} />}
 			</div>
 		</aside>
 	);

@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type { ImageContent, SessionEntry } from "@/collab/wire/index";
+import { filesFromClipboard, readDroppedFiles } from "@/lib/attachments";
 import { playSound } from "@/lib/sound";
 import { abort, enqueuePrompt, removeQueuedPrompt, runCommand, sendPrompt, setApprovalMode, setExecutionMode, setModel, setThinkingLevel } from "@/state/threads";
 import type { ApprovalMode, ExecutionMode, ModelInfo, QueuedPrompt, Thread, TimedAssistantMessage } from "@/state/types";
@@ -161,57 +162,27 @@ function getLatestPerfStats(entries: SessionEntry[]): PerfStats | null {
 }
 
 async function processDroppedFiles(files: FileList | File[], cwd: string): Promise<ComposerAttachment[]> {
-	const results: ComposerAttachment[] = [];
-	for (const file of Array.from(files)) {
-		let filePath = "";
-		if (window.omp.getPathForFile) {
-			try {
-				filePath = window.omp.getPathForFile(file) || "";
-			} catch {
-				filePath = "";
-			}
-		}
-		if (!filePath && "path" in file && typeof file.path === "string") {
-			filePath = file.path;
-		}
-		const isImage = file.type.startsWith("image/") || /\.(png|jpe?g|webp|gif|svg|bmp)$/i.test(file.name);
-		if (isImage) {
-			try {
-				const dataUrl = await new Promise<string>((resolve, reject) => {
-					const reader = new FileReader();
-					reader.onload = () => resolve(reader.result as string);
-					reader.onerror = reject;
-					reader.readAsDataURL(file);
-				});
-				const comma = dataUrl.indexOf(",");
-				const base64 = comma !== -1 ? dataUrl.slice(comma + 1) : dataUrl;
-				const mimeType = file.type || "image/png";
-				results.push({
-					id: crypto.randomUUID(),
-					type: "image",
-					name: file.name,
-					path: filePath || undefined,
-					mimeType,
-					data: base64,
-					previewUrl: URL.createObjectURL(file),
-				});
-			} catch (e) {
-				console.error("Failed to read image:", e);
-			}
-		} else {
-			const rel = filePath
-				? (filePath.startsWith(cwd) ? filePath.slice(cwd.length).replace(/^[/\\]+/, "") : filePath)
-				: file.name;
-			results.push({
+	const dropped = await readDroppedFiles(files, cwd);
+	return dropped.map(file => {
+		if (file.isImage) {
+			return {
 				id: crypto.randomUUID(),
-				type: "file",
+				type: "image",
 				name: file.name,
-				path: filePath || file.name,
-				relativePath: rel,
-			});
+				path: file.path || undefined,
+				mimeType: file.mimeType,
+				data: file.data ?? "",
+				previewUrl: file.previewUrl ?? "",
+			};
 		}
-	}
-	return results;
+		return {
+			id: crypto.randomUUID(),
+			type: "file",
+			name: file.name,
+			path: file.path || file.name,
+			relativePath: file.relativePath,
+		};
+	});
 }
 const PROMPT_HISTORY_KEY = "omp:prompt-history";
 const MAX_HISTORY = 100;
@@ -689,17 +660,7 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 	};
 
 	const onPaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>): Promise<void> => {
-		const files: File[] = [];
-		if (e.clipboardData.files && e.clipboardData.files.length > 0) {
-			files.push(...Array.from(e.clipboardData.files));
-		} else if (e.clipboardData.items) {
-			for (const item of Array.from(e.clipboardData.items)) {
-				if (item.kind === "file") {
-					const file = item.getAsFile();
-					if (file) files.push(file);
-				}
-			}
-		}
+		const files = filesFromClipboard(e.clipboardData);
 		if (files.length > 0) {
 			e.preventDefault();
 			const newAtts = await processDroppedFiles(files, thread.cwd);

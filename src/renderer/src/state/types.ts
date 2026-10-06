@@ -1,5 +1,5 @@
 import type { ActiveTool } from "@/collab/lib/client";
-import type { ApprovalMode } from "@shared/ipc";
+import type { ApprovalMode, ModelRef } from "@shared/ipc";
 export type { ApprovalMode };
 export type ExecutionMode = "edit" | "plan" | "ask";
 
@@ -82,19 +82,7 @@ export interface SubagentSnapshot {
 	parentToolCallId?: string;
 	error?: string;
 }
-export type TodoStatus = "pending" | "in_progress" | "completed" | "abandoned";
-
-export interface TodoItem {
-	content: string;
-	status: TodoStatus;
-}
-
-export interface TodoPhase {
-	name: string;
-	tasks: TodoItem[];
-}
-
-export type RightPanelTab = "files" | "git" | "terminal" | "subagents";
+export type RightPanelTab = "files" | "git" | "terminal" | "subagents" | "todos";
 
 /** get_state 的子集 */
 export interface SessionStateSnapshot {
@@ -106,7 +94,6 @@ export interface SessionStateSnapshot {
 	sessionName?: string;
 	queuedMessageCount: number;
 	contextUsage?: ContextUsage;
-	todoPhases?: TodoPhase[];
 }
 
 export type UiRequest =
@@ -147,7 +134,12 @@ export interface Thread {
 	uiRequests: UiRequest[];
 	queuedPrompts: QueuedPrompt[];
 	notices: Notice[];
-	todoPhases: TodoPhase[];
+	/** 待办「开始工作」指定的模型；attach 时在主进程完成切换 */
+	modelOverride?: ModelRef;
+	/** 线程就绪后自动发送的首条消息 */
+	pendingPrompt?: { message: string; images?: ImageContent[] };
+	/** 首条消息前用于顶栏显示的临时标题 */
+	titleOverride?: string;
 	createdAt: number;
 	updatedAt: number;
 }

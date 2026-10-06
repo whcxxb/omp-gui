@@ -17,6 +17,8 @@ const api: OmpApi = {
 	setDefaultApprovalMode: mode => ipcRenderer.invoke("omp:set-default-approval-mode", mode),
 	getOmpConfigs: () => ipcRenderer.invoke("omp:get-configs"),
 	setOmpConfig: (key, value) => ipcRenderer.invoke("omp:set-config", key, value),
+	readPromptFiles: () => ipcRenderer.invoke("omp:read-prompt-files"),
+	writePromptFile: (id, content) => ipcRenderer.invoke("omp:write-prompt-file", id, content),
 	setTheme: theme => ipcRenderer.invoke("omp:set-theme", theme),
 	getPathForFile: file => {
 		try {
@@ -47,6 +49,22 @@ const api: OmpApi = {
 	killTerminalCommand: id => ipcRenderer.invoke("omp:terminal-kill", { id }),
 	getMemoryOverview: cwd => ipcRenderer.invoke("omp:get-memory-overview", cwd),
 	deleteMemory: (bankId, id, type) => ipcRenderer.invoke("omp:delete-memory", bankId, id, type),
+	listTodos: cwd => ipcRenderer.invoke("omp:todos-list", cwd),
+	createTodo: input => ipcRenderer.invoke("omp:todos-create", input),
+	updateTodo: (cwd, id, patch) => ipcRenderer.invoke("omp:todos-update", cwd, id, patch),
+	deleteTodo: (cwd, id) => ipcRenderer.invoke("omp:todos-delete", cwd, id),
+	reorderTodos: (cwd, orderedIds) => ipcRenderer.invoke("omp:todos-reorder", cwd, orderedIds),
+	addTodoAttachment: input => ipcRenderer.invoke("omp:todos-add-attachment", input),
+	removeTodoAttachment: (cwd, todoId, attachmentId) =>
+		ipcRenderer.invoke("omp:todos-remove-attachment", cwd, todoId, attachmentId),
+	readTodoAttachment: blob => ipcRenderer.invoke("omp:todos-read-attachment", blob),
+	recordTodoRun: (cwd, todoId, run) => ipcRenderer.invoke("omp:todos-record-run", cwd, todoId, run),
+	listCatalogModels: () => ipcRenderer.invoke("omp:list-catalog-models"),
+	onTodosChanged(listener) {
+		const handler = (_e: unknown, cwd: string) => listener(cwd);
+		ipcRenderer.on("omp:todos-changed", handler);
+		return () => ipcRenderer.removeListener("omp:todos-changed", handler);
+	},
 	onMemorySaved(listener) {
 		const handler = (_e: unknown, event: MemorySavedEvent) => listener(event);
 		ipcRenderer.on("omp:memory-saved", handler);
