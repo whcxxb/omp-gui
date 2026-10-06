@@ -120,15 +120,70 @@ export function Sidebar(props: SidebarProps): ReactNode {
 		}
 	};
 
-	// 默认全部折叠，仅展开用户明确展开过的项目
+	// 项目展开状态持久化（非互斥手风琴，各项目均可随时独立折叠和展开）
 	const [uncollapsed, setUncollapsed] = useState<Set<string>>(() => {
 		try {
 			const raw = localStorage.getItem(UNCOLLAPSED_PROJECTS_KEY);
-			return raw ? new Set(JSON.parse(raw) as string[]) : new Set();
+			if (raw !== null) {
+				return new Set(JSON.parse(raw) as string[]);
+			}
 		} catch {
 			return new Set();
 		}
+		return props.activeProject ? new Set([props.activeProject]) : new Set();
 	});
+
+	// 首次启动若无本地缓存，初始化展开当前活跃项目
+	useEffect(() => {
+		if (!props.activeProject) return;
+		try {
+			const raw = localStorage.getItem(UNCOLLAPSED_PROJECTS_KEY);
+			if (raw === null) {
+				setUncollapsed(prev => {
+					if (prev.size > 0) return prev;
+					const next = new Set([props.activeProject!]);
+					try {
+						localStorage.setItem(UNCOLLAPSED_PROJECTS_KEY, JSON.stringify([...next]));
+					} catch {}
+					return next;
+				});
+			}
+		} catch {}
+	}, [props.activeProject]);
+
+	const toggleProject = (path: string): void => {
+		setUncollapsed(prev => {
+			const next = toggle(prev, path);
+			try {
+				localStorage.setItem(UNCOLLAPSED_PROJECTS_KEY, JSON.stringify([...next]));
+			} catch {}
+			return next;
+		});
+	};
+
+	const expandProject = (path: string): void => {
+		setUncollapsed(prev => {
+			if (prev.has(path)) return prev;
+			const next = new Set(prev).add(path);
+			try {
+				localStorage.setItem(UNCOLLAPSED_PROJECTS_KEY, JSON.stringify([...next]));
+			} catch {}
+			return next;
+		});
+	};
+
+	const handleRemoveProject = (path: string): void => {
+		setUncollapsed(prev => {
+			if (!prev.has(path)) return prev;
+			const next = new Set(prev);
+			next.delete(path);
+			try {
+				localStorage.setItem(UNCOLLAPSED_PROJECTS_KEY, JSON.stringify([...next]));
+			} catch {}
+			return next;
+		});
+		props.onRemoveProject(path);
+	};
 	const [expanded, setExpanded] = useState<Set<string>>(new Set());
 	const [pinnedKeys, setPinnedKeys] = useState<Set<string>>(() => {
 		try {
@@ -424,7 +479,12 @@ export function Sidebar(props: SidebarProps): ReactNode {
 					type="button"
 					className="sb-action"
 					disabled={!activeProject}
-					onClick={() => activeProject && props.onNewThread(activeProject)}
+					onClick={() => {
+						if (activeProject) {
+							expandProject(activeProject);
+							props.onNewThread(activeProject);
+						}
+					}}
 				>
 					<SquarePen size={15} />
 					<span>新对话</span>
@@ -448,8 +508,8 @@ export function Sidebar(props: SidebarProps): ReactNode {
 					</div>
 				)}
 				{projects.map(project => {
-					// 默认全部折叠；激活对话所在的项目或用户手动展开过的项目保持展开
-					const isCollapsed = project.path !== activeProject && !uncollapsed.has(project.path);
+					// 每个项目独立维护折叠状态，当前项目和其他项目完全非互斥，均可随时折叠和展开
+					const isCollapsed = !uncollapsed.has(project.path);
 					const allItems = projectThreadItems.get(project.path) ?? [];
 					const pinnedItems = allItems.filter(item => pinnedKeys.has(item.key));
 					const archivedItems = allItems.filter(item => archivedKeys.has(item.key));
@@ -465,15 +525,7 @@ export function Sidebar(props: SidebarProps): ReactNode {
 									type="button"
 									className="sb-project-toggle"
 									title={shortPath(project.path)}
-									onClick={() => {
-										setUncollapsed(s => {
-											const next = toggle(s, project.path);
-											try {
-												localStorage.setItem(UNCOLLAPSED_PROJECTS_KEY, JSON.stringify([...next]));
-											} catch {}
-											return next;
-										});
-									}}
+									onClick={() => toggleProject(project.path)}
 								>
 									<ChevronRight size={12} className={`sb-chev${isCollapsed ? "" : " is-open"}`} />
 									<Folder size={14} />
@@ -485,7 +537,10 @@ export function Sidebar(props: SidebarProps): ReactNode {
 										className="sb-icon-btn"
 										title="在此项目中新建对话"
 										disabled={project.missing}
-										onClick={() => props.onNewThread(project.path)}
+										onClick={() => {
+											expandProject(project.path);
+											props.onNewThread(project.path);
+										}}
 									>
 										<SquarePen size={13} />
 									</button>
@@ -493,7 +548,7 @@ export function Sidebar(props: SidebarProps): ReactNode {
 										type="button"
 										className="sb-icon-btn"
 										title="从列表中移除"
-										onClick={() => props.onRemoveProject(project.path)}
+										onClick={() => handleRemoveProject(project.path)}
 									>
 										<X size={13} />
 									</button>
