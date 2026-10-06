@@ -79,8 +79,7 @@ function seedCollapseFixture() {
 				timestamp: Date.now(),
 				usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
 				content: [
-					{ type: "thinking", thinking: "夹具思考内容，应当默认折叠。" },
-					{ type: "text", text: "." },
+					{ type: "thinking", thinking: "第一轮中间思考，应当默认折叠。" },
 					{ type: "toolCall", id: "fx-tc1", name: "bash", arguments: { command: "echo fixture" } },
 				],
 			},

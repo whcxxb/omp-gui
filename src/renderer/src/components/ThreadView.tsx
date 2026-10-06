@@ -1,5 +1,5 @@
-import { ArrowDown, Brain, Check, ChevronRight, Copy, CornerDownLeft, GitFork, GripVertical, Pencil, Quote } from "lucide-react";
-import { memo, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowDown, Brain, Check, ChevronRight, Copy, CornerDownLeft, GitFork, GripVertical, Pencil, Quote, Wrench } from "lucide-react";
+import { memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ActiveTool } from "@/collab/lib/client";
 import { Markdown } from "./Markdown";
 import { messageText } from "@/collab/lib/format";
@@ -16,6 +16,25 @@ import type { Thread } from "@/state/types";
 const FOLLOW_THRESHOLD_PX = 80;
 /** 长会话只挂载尾部若干条，向上滚动再逐批加载 */
 const WINDOW = 120;
+const EXPANDED_TURNS_KEY = "omp_gui_expanded_turns";
+
+function loadExpandedTurns(): Set<string> {
+	try {
+		const raw = localStorage.getItem(EXPANDED_TURNS_KEY);
+		return raw ? new Set(JSON.parse(raw) as string[]) : new Set();
+	} catch {
+		return new Set();
+	}
+}
+
+function saveExpandedTurns(set: Set<string>): void {
+	try {
+		// 只保留最近 200 个回合的展开状态，避免无限累积
+		const arr = [...set];
+		if (arr.length > 200) arr.splice(0, arr.length - 200);
+		localStorage.setItem(EXPANDED_TURNS_KEY, JSON.stringify(arr));
+	} catch {}
+}
 
 function ThinkingBlock({ text, redacted, live }: { text: string; redacted?: boolean; live?: boolean }): ReactNode {
 	const [open, setOpen] = useState(false);
@@ -129,6 +148,12 @@ function getFullTimeString(raw?: number | string): string | undefined {
 	return date.toLocaleString();
 }
 
+interface TurnStats {
+	toolCounts: Record<string, number>;
+	totalTools: number;
+	totalThinks: number;
+}
+
 interface AssistantProps {
 	threadKey: string;
 	entryId?: string;
@@ -136,30 +161,38 @@ interface AssistantProps {
 	results: ReadonlyMap<string, ToolResultMessage>;
 	active: ReadonlyMap<string, ActiveTool>;
 	pending: boolean;
+	turnCompleted?: boolean;
+	turnExpanded?: boolean;
+	isTurnSummaryAnchor?: boolean;
+	turnStats?: TurnStats;
+	onToggleTurn?: () => void;
 }
 
-function AssistantBody({ threadKey, entryId, message, results, active, pending }: AssistantProps): ReactNode {
+function AssistantBody({
+	threadKey,
+	entryId,
+	message,
+	results,
+	active,
+	pending,
+	turnCompleted = false,
+	turnExpanded = false,
+	isTurnSummaryAnchor = false,
+	turnStats,
+	onToggleTurn,
+}: AssistantProps): ReactNode {
 	const [copied, setCopied] = useState(false);
 	const last = message.content.length - 1;
 	const assistantText = extractAssistantText(message);
-
-	/**
-	 * 已完成的一轮里，思考过程与工具调用默认折叠，只留最终结论。
-	 * 进行中的消息（pending）保持展开，便于实时观察。
-	 * 仅当确实存在正文时折叠，否则会把整轮内容藏起来、看起来像空回复。
-	 */
 	const blocks = message.content;
-	const lastTextIndex = blocks.reduce((acc, b, i) => (b.type === "text" && b.text.trim() ? i : acc), -1);
-	const collapsible = !pending && lastTextIndex !== -1;
-	const hiddenCount = collapsible
-		? blocks.filter((b, i) => i !== lastTextIndex && (b.type === "thinking" || b.type === "toolCall")).length
-		: 0;
-	const [showDetails, setShowDetails] = useState(false);
 
-	// 切换到另一条消息时重置展开状态，避免复用到下一轮
-	useEffect(() => {
-		setShowDetails(false);
-	}, [entryId, threadKey]);
+	const lastTextIndex = blocks.reduce((acc, b, i) => (b.type === "text" && b.text.trim() ? i : acc), -1);
+	const isCollapsibleBlock = (type: string, index: number): boolean => {
+		if (pending || !turnCompleted || turnExpanded) return false;
+		if (type !== "thinking" && type !== "redactedThinking" && type !== "toolCall") return false;
+		if (isTurnSummaryAnchor && index === lastTextIndex) return false;
+		return true;
+	};
 
 	const handleCopy = (): void => {
 		if (!assistantText) return;
@@ -177,26 +210,47 @@ function AssistantBody({ threadKey, entryId, message, results, active, pending }
 		);
 	};
 
+	// 统计汇总文本
+	const rollupLabel = useMemo(() => {
+		if (!turnStats) return "过程详情";
+		const { toolCounts, totalTools, totalThinks } = turnStats;
+		const parts: string[] = [];
+		const toolEntries = Object.entries(toolCounts);
+		if (toolEntries.length > 0) {
+			const topTools = toolEntries
+				.slice(0, 3)
+				.map(([name, count]) => `${name}${count > 1 ? ` × ${count}` : ""}`)
+				.join(", ");
+			const more = toolEntries.length > 3 ? " 等" : "";
+			parts.push(`${totalTools} 步操作 (${topTools}${more})`);
+		}
+		if (totalThinks > 0) {
+			parts.push(`${totalThinks} 轮思考`);
+		}
+		return parts.length > 0 ? parts.join(" · ") : `${totalTools} 步操作`;
+	}, [turnStats]);
+
 	return (
 		<div className="th-assistant">
-			{collapsible && hiddenCount > 0 && (
-				<button
-					type="button"
-					className={`th-details-toggle${showDetails ? " is-open" : ""}`}
-					onClick={() => setShowDetails(v => !v)}
-					aria-expanded={showDetails}
-				>
-					<ChevronRight size={12} className={`th-chev${showDetails ? " is-open" : ""}`} />
-					<span>
-						{showDetails ? "收起过程" : `展开过程（${hiddenCount} 步）`}
-					</span>
-				</button>
+			{isTurnSummaryAnchor && turnCompleted && turnStats && (turnStats.totalTools > 0 || turnStats.totalThinks > 0) && (
+				<div className="th-turn-rollup">
+					<button
+						type="button"
+						className={`th-details-toggle${turnExpanded ? " is-open" : ""}`}
+						onClick={onToggleTurn}
+						aria-expanded={turnExpanded}
+						title={turnExpanded ? "收起思考与执行过程" : "展开完整思考与执行过程"}
+					>
+						<ChevronRight size={12} className={`th-chev${turnExpanded ? " is-open" : ""}`} />
+						<span className="th-rollup-badge">
+							{turnStats.totalTools > 0 ? <Wrench size={11} className="th-rollup-icon" /> : <Brain size={11} className="th-rollup-icon" />}
+							<span>{turnExpanded ? "收起过程" : `展开过程（${rollupLabel}）`}</span>
+						</span>
+					</button>
+				</div>
 			)}
 			{blocks.map((block, i) => {
-				// 折叠态下隐藏思考与工具调用，仅保留最后一段正文
-				if (collapsible && !showDetails && i !== lastTextIndex && (block.type === "thinking" || block.type === "toolCall")) {
-					return null;
-				}
+				if (isCollapsibleBlock(block.type, i)) return null;
 				switch (block.type) {
 					case "thinking":
 						return block.thinking.trim() ? (
@@ -426,16 +480,29 @@ function UserMessageBubble({
 	);
 }
 
+interface TurnMeta {
+	turnId: string;
+	completed: boolean;
+	isAnchor: boolean;
+	stats: TurnStats;
+}
+
 const EntryRow = memo(function EntryRow({
 	threadKey,
 	entry,
 	results,
 	active,
+	turnMeta,
+	isTurnExpanded,
+	onToggleTurn,
 }: {
 	threadKey: string;
 	entry: SessionEntry;
 	results: ReadonlyMap<string, ToolResultMessage>;
 	active: ReadonlyMap<string, ActiveTool>;
+	turnMeta?: TurnMeta;
+	isTurnExpanded?: boolean;
+	onToggleTurn?: (turnId: string) => void;
 }): ReactNode {
 	switch (entry.type) {
 		case "message": {
@@ -460,6 +527,11 @@ const EntryRow = memo(function EntryRow({
 						results={results}
 						active={active}
 						pending={false}
+						turnCompleted={turnMeta?.completed}
+						turnExpanded={isTurnExpanded}
+						isTurnSummaryAnchor={turnMeta?.isAnchor}
+						turnStats={turnMeta?.stats}
+						onToggleTurn={turnMeta ? () => onToggleTurn?.(turnMeta.turnId) : undefined}
 					/>
 				);
 			}
@@ -492,6 +564,8 @@ export function ThreadView({ thread }: { thread: Thread }): ReactNode {
 	const { entries, stream, activeTools, working } = thread;
 	const [start, setStart] = useState<number | null>(null);
 	const [showScrollBottom, setShowScrollBottom] = useState(false);
+	const [expandedTurns, setExpandedTurns] = useState<Set<string>>(loadExpandedTurns);
+
 	const tailStart = Math.max(0, entries.length - WINDOW);
 	const from = start === null ? tailStart : Math.min(start, tailStart);
 	const visible = useMemo(() => entries.slice(from), [entries, from]);
@@ -502,6 +576,78 @@ export function ThreadView({ thread }: { thread: Thread }): ReactNode {
 		}
 		return map;
 	}, [entries]);
+
+	// 计算整个会话中每个 assistant entry 的回合所属与统计信息
+	const turnMetaMap = useMemo(() => {
+		const metaMap = new Map<string, TurnMeta>();
+		let currentTurnId = "initial";
+		let currentTurnEntries: { id: string; message: AssistantMessage }[] = [];
+		let currentHasText = false;
+
+		const flushTurn = () => {
+			if (currentTurnEntries.length === 0) return;
+			const toolCounts: Record<string, number> = {};
+			let totalTools = 0;
+			let totalThinks = 0;
+			let anchorId: string | null = null;
+
+			for (const item of currentTurnEntries) {
+				for (const b of item.message.content) {
+					if (b.type === "toolCall") {
+						totalTools++;
+						toolCounts[b.name] = (toolCounts[b.name] ?? 0) + 1;
+					} else if (b.type === "thinking" || b.type === "redactedThinking") {
+						totalThinks++;
+					} else if (b.type === "text" && b.text.trim()) {
+						anchorId = item.id;
+					}
+				}
+			}
+
+			// 若本回合有正文结论，锚点即为最后一条带正文的消息；若纯工具则选最后一条
+			if (!anchorId && currentTurnEntries.length > 0) {
+				anchorId = currentTurnEntries[currentTurnEntries.length - 1].id;
+			}
+
+			const stats: TurnStats = { toolCounts, totalTools, totalThinks };
+			const completed = currentHasText;
+
+			for (const item of currentTurnEntries) {
+				metaMap.set(item.id, {
+					turnId: currentTurnId,
+					completed,
+					isAnchor: item.id === anchorId,
+					stats,
+				});
+			}
+		};
+
+		for (const entry of entries) {
+			if (entry.type === "message" && entry.message.role === "user" && !entry.message.synthetic) {
+				flushTurn();
+				currentTurnId = entry.id;
+				currentTurnEntries = [];
+				currentHasText = false;
+			} else if (entry.type === "message" && entry.message.role === "assistant") {
+				currentTurnEntries.push({ id: entry.id, message: entry.message });
+				if (entry.message.content.some(b => b.type === "text" && b.text.trim())) {
+					currentHasText = true;
+				}
+			}
+		}
+		flushTurn();
+		return metaMap;
+	}, [entries]);
+
+	const toggleTurn = useCallback((turnId: string) => {
+		setExpandedTurns(prev => {
+			const next = new Set(prev);
+			if (next.has(turnId)) next.delete(turnId);
+			else next.add(turnId);
+			saveExpandedTurns(next);
+			return next;
+		});
+	}, []);
 
 	// 未出现在任何 toolCall 块里的执行中工具（例如子进程直接触发）
 	const tailTools = useMemo(() => {
@@ -554,9 +700,22 @@ export function ThreadView({ thread }: { thread: Thread }): ReactNode {
 			<div className="th-scroll" ref={scrollRef} onScroll={onScroll}>
 				<div className="th-column">
 					{from > 0 && <div className="th-earlier">向上滚动加载更早的 {from} 条记录</div>}
-					{visible.map(entry => (
-						<EntryRow key={entry.id} threadKey={thread.key} entry={entry} results={results} active={activeTools} />
-					))}
+					{visible.map(entry => {
+						const meta = turnMetaMap.get(entry.id);
+						const isTurnExpanded = meta ? expandedTurns.has(meta.turnId) : false;
+						return (
+							<EntryRow
+								key={entry.id}
+								threadKey={thread.key}
+								entry={entry}
+								results={results}
+								active={activeTools}
+								turnMeta={meta}
+								isTurnExpanded={isTurnExpanded}
+								onToggleTurn={toggleTurn}
+							/>
+						);
+					})}
 					{stream && <AssistantBody threadKey={thread.key} message={stream} results={results} active={activeTools} pending />}
 					{tailTools.length > 0 && (
 						<div className="th-assistant">

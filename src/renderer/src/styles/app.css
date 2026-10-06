@@ -3565,34 +3565,60 @@
 	transition: opacity 140ms ease, transform 140ms ease;
 }
 
-/* 已完成轮次的「展开过程」开关：默认折叠思考与工具调用，只留结论 */
+/* 已完成轮次的「展开过程」汇总胶囊：默认折叠中间思考与工具调用，只留结论 */
+.th-turn-rollup {
+	display: flex;
+	align-items: center;
+	margin: 2px 0 8px;
+}
+
 .th-details-toggle {
 	display: inline-flex;
 	align-items: center;
-	gap: 5px;
+	gap: 6px;
 	align-self: flex-start;
-	height: 24px;
+	height: 26px;
 	padding: 0 10px 0 8px;
 	border: 1px solid var(--border-subtle);
 	border-radius: var(--radius-pill);
-	background: transparent;
-	color: var(--fg-faint);
+	background: var(--bg-surface);
+	color: var(--fg-muted);
 	font-size: 11.5px;
+	font-weight: 500;
 	cursor: pointer;
-	transition: all 120ms ease;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+	transition: all 140ms ease;
+	user-select: none;
+}
+
+.th-rollup-badge {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+}
+
+.th-rollup-icon {
+	color: var(--fg-faint);
+	flex-shrink: 0;
 }
 
 .th-details-toggle:hover {
 	background: var(--bg-hover);
-	color: var(--fg-muted);
+	color: var(--fg);
 	border-color: var(--border-strong);
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.th-details-toggle:hover .th-rollup-icon {
+	color: var(--primary, var(--fg));
 }
 
 .th-details-toggle.is-open {
 	background: var(--bg-inset);
 	color: var(--fg-muted);
+	border-color: var(--border-subtle);
+	box-shadow: none;
 }
-
 .th-assistant:hover .th-assistant-bar {
 	opacity: 1;
 	transform: translateY(0);
