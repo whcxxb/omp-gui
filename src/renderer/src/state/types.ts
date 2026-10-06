@@ -27,7 +27,7 @@ export interface QueuedPrompt {
 	images?: ImageContent[];
 	attachments?: QueuedPromptAttachment[];
 	createdAt: number;
-	delivery?: "sending" | "failed" | "unknown";
+	delivery?: "sending" | "unknown";
 	error?: string;
 }
 

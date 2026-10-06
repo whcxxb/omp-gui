@@ -276,16 +276,9 @@ export function App(): ReactNode {
 		const trimmed = newTitle.trim();
 		if (!trimmed || trimmed === item.title) return;
 
-		if (item.thread) {
-			await renameThread(item.thread.key, trimmed);
-		}
-		if (item.session?.file) {
-			await window.omp.renameSession(item.session.file, trimmed);
-			const matchingThread = threads.find(t => t.sessionFile === item.session?.file);
-			if (matchingThread && (!item.thread || matchingThread.key !== item.thread.key)) {
-				await renameThread(matchingThread.key, trimmed);
-			}
-		}
+		const matchingThread = item.thread ?? threads.find(t => t.sessionFile === item.session?.file);
+		if (matchingThread) await renameThread(matchingThread.key, trimmed);
+		else if (item.session?.file) await window.omp.renameSession(item.session.file, trimmed);
 		refreshProjects();
 	};
 

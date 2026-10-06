@@ -157,6 +157,9 @@ export async function readSessionHeader(file: string): Promise<{ file: string; i
 		&& (first.source === undefined || first.source === "auto" || first.source === "user");
 	const legacyTitle = first.type === "title" && !nativeSlot;
 	if (legacyTitle && !(first.v === 1 && typeof first.title === "string" && typeof first.updatedAt === "string"
+		&& Number.isFinite(Date.parse(first.updatedAt))
+		&& Object.keys(first).every(key => ["type", "v", "title", "source", "updatedAt", "pad"].includes(key))
+		&& (first.pad === undefined || typeof first.pad === "string")
 		&& (first.source === "custom" || first.source === "fork"))) {
 		throw new Error("无法确认旧版会话格式，原文件未修改");
 	}
@@ -171,11 +174,13 @@ export async function recoverLegacySessionCopy(file: string): Promise<string> {
 	const firstEnd = original.indexOf(10);
 	const headerEnd = original.indexOf(10, firstEnd + 1);
 	if (firstEnd < 0 || headerEnd < 0) throw new Error("旧会话头不完整，原文件未修改");
-	const prefix = JSON.parse(original.subarray(0, firstEnd).toString("utf8")) as { title: string };
+	const prefix = JSON.parse(original.subarray(0, firstEnd).toString("utf8")) as Record<string, unknown>;
+	if (prefix.type !== "title" || prefix.v !== 1 || typeof prefix.title !== "string" ||
+		!(prefix.source === "custom" || prefix.source === "fork")) throw new Error("会话格式已变化，原文件未修改");
 	const header = JSON.parse(original.subarray(firstEnd + 1, headerEnd).toString("utf8")) as Record<string, unknown>;
 	if (header.type !== "session" || header.id !== info.id) throw new Error("会话已变化，请重新打开");
 	// Confirm a complete JSONL snapshot before creating a recovered identity.
-	for (const line of original.subarray(headerEnd + 1).toString("utf8").split("\n")) {
+	for (const line of new TextDecoder("utf-8", { fatal: true }).decode(original.subarray(headerEnd + 1)).split("\n")) {
 		if (line.trim()) JSON.parse(line);
 	}
 	if (!(await readFile(info.file)).equals(original)) throw new Error("会话仍在写入，请停止后重新打开");

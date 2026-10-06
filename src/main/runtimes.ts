@@ -85,6 +85,7 @@ export class RuntimePool {
 	#entries = new Map<string, Entry>();
 	#sessionOperations = new Map<string, Promise<unknown>>();
 	#recoveredSessions = new Map<string, string>();
+	#recoveringSessions = new Map<string, Promise<string>>();
 
 	constructor(
 		private readonly emit: Emit,
@@ -138,8 +139,7 @@ export class RuntimePool {
 				await rpc.request("set_model", { provider: options.model.provider, modelId: options.model.id });
 			}
 		} catch (error) {
-			rpc.dispose();
-			this.#entries.delete(rpc.id);
+			await this.close(rpc.id);
 			throw error;
 		}
 		this.#evict(rpc.id);
@@ -150,9 +150,19 @@ export class RuntimePool {
 		const source = resolve(file);
 		const existing = this.#recoveredSessions.get(source);
 		if (existing && existsSync(existing)) return existing;
-		const recovered = await recoverLegacySessionCopy(source);
-		if (recovered !== source) this.#recoveredSessions.set(source, recovered);
-		return recovered;
+		const pending = this.#recoveringSessions.get(source);
+		if (pending) return pending;
+		const recovery = (async () => {
+			const header = await readSessionHeader(source);
+			if (!header.legacyTitle) return source;
+			if (await this.#findSessionRuntime(source)) throw new Error("旧格式会话仍在使用，请关闭原会话后重新打开");
+			const recovered = await recoverLegacySessionCopy(source);
+			this.#recoveredSessions.set(source, recovered);
+			return recovered;
+		})();
+		this.#recoveringSessions.set(source, recovery);
+		try { return await recovery; }
+		finally { if (this.#recoveringSessions.get(source) === recovery) this.#recoveringSessions.delete(source); }
 	}
 
 	async #withSessionOperation<T>(file: string, action: () => Promise<T>): Promise<T> {
@@ -271,9 +281,14 @@ export class RuntimePool {
 		}
 	}
 
-	close(runtimeId: string): void {
-		this.#entries.get(runtimeId)?.rpc.dispose();
+	async close(runtimeId: string): Promise<void> {
+		const rpc = this.#entries.get(runtimeId)?.rpc;
+		if (!rpc) return;
 		this.#entries.delete(runtimeId);
+		if (!rpc.alive) return;
+		const exited = new Promise<void>(done => rpc.once("exit", () => done()));
+		rpc.dispose();
+		await exited;
 	}
 
 	disposeAll(): void {
@@ -286,7 +301,7 @@ export class RuntimePool {
 			.filter(([id, e]) => id !== keep && !e.streaming)
 			.sort((a, b) => b[1].lastUsed - a[1].lastUsed);
 		for (const [id] of idle.slice(MAX_IDLE)) {
-			this.close(id);
+			void this.close(id);
 			this.emit(id, { kind: "exit", code: null, signal: "evicted" });
 		}
 	}

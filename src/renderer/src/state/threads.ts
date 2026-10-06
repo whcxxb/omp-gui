@@ -252,7 +252,8 @@ async function attach(key: string): Promise<void> {
 		const pending = getThread(key)?.pendingPrompt;
 		if (pending) {
 			update(key, () => ({ pendingPrompt: undefined }));
-			void sendPrompt(key, pending.message, pending.images);
+			enqueuePrompt(key, pending.message, pending.message, pending.images);
+			await dispatchNextQueuedPrompt(key);
 		}
 	} catch (error) {
 		update(key, () => ({ status: "error", error: error instanceof Error ? error.message : String(error) }));
@@ -507,10 +508,11 @@ export async function editAndResendPrompt(key: string, targetEntryId?: string, n
 	if (!original || original.type !== "message" || original.message.role !== "user") return false;
 	const userIndex = initial.entries.filter(e => e.type === "message" && e.message.role === "user").findIndex(e => e.id === original.id);
 	const runtimeId = initial.runtimeId;
+	const images = Array.isArray(original.message.content) ? original.message.content.filter((block): block is ImageContent => block.type === "image") : undefined;
 	exclusiveOperations.add(key);
-	update(key, () => ({ editing: true }));
+	update(key, () => ({ editing: true, queuePaused: true }));
 	try {
-		if (initial.working && !(await abort(key, false))) return false;
+		if (initial.working && !(await abort(key, false))) throw new Error("未确认停止，编辑内容未发送");
 		if (getThread(key)?.runtimeId !== runtimeId || !(await loadEntries(key))) throw new Error("会话已变化，请重新编辑");
 		const current = getThread(key)!;
 		const target = persistedTarget(current, original, userIndex);
@@ -519,14 +521,20 @@ export async function editAndResendPrompt(key: string, targetEntryId?: string, n
 		if (getThread(key)?.runtimeId !== runtimeId || !(await loadEntries(key))) throw new Error("无法确认回退结果，未重新发送");
 		await refreshState(key);
 		if (getThread(key)?.runtimeId !== runtimeId || getThread(key)?.working) throw new Error("当前任务尚未结束，未重新发送");
-		return await submitPrompt(key, newMessage.trim());
+		const accepted = await submitPrompt(key, newMessage.trim(), images);
+		if (accepted) update(key, () => ({ queuePaused: initial.queuePaused }));
+		else throw new Error("编辑内容发送未确认，请核对对话后再操作");
+		return true;
 	} catch (error) {
-		update(key, t => pushNotice(t, "error", `编辑未完成：${error instanceof Error ? error.message : String(error)}`));
+		update(key, t => ({ ...pushNotice(t, "error", `编辑未完成：${error instanceof Error ? error.message : String(error)}`),
+			queuedPrompts: [{ id: crypto.randomUUID(), text: newMessage.trim(), message: newMessage.trim(), images, createdAt: Date.now(),
+				delivery: "unknown", error: "编辑内容已保留，请核对原消息与对话后再操作" }, ...t.queuedPrompts] }));
 		return false;
 	} finally {
 		exclusiveOperations.delete(key);
 		update(key, () => ({ editing: false }));
-		// 编辑失败留给用户处理；不能用排队内容抢占失败的编辑操作。
+		// 成功后恢复队列；失败项与暂停标记阻止自动重发。
+		if (getThread(key)?.runtimeId === runtimeId) void refreshState(key);
 	}
 }
 
@@ -536,7 +544,7 @@ export function enqueuePrompt(
 	message: string,
 	images?: ImageContent[],
 	attachments?: QueuedPromptAttachment[],
-): void {
+): string | undefined {
 	const thread = getThread(key);
 	if (!thread) return;
 	const queued: QueuedPrompt = {
@@ -549,6 +557,7 @@ export function enqueuePrompt(
 	};
 	update(key, t => ({ queuedPrompts: [...t.queuedPrompts, queued] }));
 	playSound("send");
+	return queued.id;
 }
 
 async function sendQueuedPrompt(key: string, id: string, steer: boolean): Promise<void> {
@@ -568,6 +577,7 @@ async function sendQueuedPrompt(key: string, id: string, steer: boolean): Promis
 		}
 	} finally {
 		sendingQueues.delete(key);
+		if (getThread(key)?.runtimeId === thread.runtimeId) void refreshState(key);
 	}
 }
 

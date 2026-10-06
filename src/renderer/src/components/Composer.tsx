@@ -23,7 +23,7 @@ import { type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useStat
 import type { ImageContent, SessionEntry } from "@/collab/wire/index";
 import { filesFromClipboard, readDroppedFiles } from "@/lib/attachments";
 import { playSound } from "@/lib/sound";
-import { abort, enqueuePrompt, removeQueuedPrompt, runCommand, sendPrompt, setApprovalMode, setExecutionMode, setModel, setThinkingLevel } from "@/state/threads";
+import { abort, dispatchNextQueuedPrompt, enqueuePrompt, removeQueuedPrompt, runCommand, steerQueuedPrompt, setApprovalMode, setExecutionMode, setModel, setThinkingLevel } from "@/state/threads";
 import type { ApprovalMode, ExecutionMode, ModelInfo, QueuedPrompt, Thread, TimedAssistantMessage } from "@/state/types";
 import { QueuedPromptTray } from "./QueuedPromptTray";
 export type ComposerAttachment =
@@ -248,7 +248,7 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
 	const historyIndexRef = useRef<number | null>(null);
 	const draftRef = useRef<string>("");
-	const connected = thread.status === "ready";
+	const connected = thread.status === "ready" && !thread.editing;
 
 	const [mentionActive, setMentionActive] = useState(false);
 	const [mentionQuery, setMentionQuery] = useState("");
@@ -372,59 +372,59 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 		draftRef.current = "";
 		setText("");
 		setAttachments([]);
-		if (thread.working) {
-			enqueuePrompt(
-				thread.key,
-				trimmed,
-				message,
-				images.length > 0 ? images : undefined,
-				attachments.map(a => {
-					if (a.type === "image") {
-						return {
-							id: a.id,
-							type: "image",
-							name: a.name,
-							path: a.path,
-							mimeType: a.mimeType,
-							data: a.data,
-							previewUrl: a.previewUrl,
-						};
-					}
-					if (a.type === "session") {
-						return {
-							id: a.id,
-							type: "session",
-							name: `对话: ${a.title}`,
-							sessionTitle: a.title,
-							sessionFile: a.file,
-						};
-					}
-					if (a.type === "message-record") {
-						return {
-							id: a.id,
-							type: "message-record",
-							name: `引用: ${a.summary}`,
-							quoteRole: a.role,
-							quoteContent: a.content,
-						};
-					}
+		const queuedId = enqueuePrompt(
+			thread.key,
+			trimmed,
+			message,
+			images.length > 0 ? images : undefined,
+			attachments.map(a => {
+				if (a.type === "image") {
 					return {
 						id: a.id,
-						type: "file",
+						type: "image",
 						name: a.name,
 						path: a.path,
-						relativePath: a.relativePath,
+						mimeType: a.mimeType,
+						data: a.data,
+						previewUrl: a.previewUrl,
 					};
-				}),
-			);
-			return;
+				}
+				if (a.type === "session") {
+					return {
+						id: a.id,
+						type: "session",
+						name: `对话: ${a.title}`,
+						sessionTitle: a.title,
+						sessionFile: a.file,
+					};
+				}
+				if (a.type === "message-record") {
+					return {
+						id: a.id,
+						type: "message-record",
+						name: `引用: ${a.summary}`,
+						quoteRole: a.role,
+						quoteContent: a.content,
+					};
+				}
+				return {
+					id: a.id,
+					type: "file",
+					name: a.name,
+					path: a.path,
+					relativePath: a.relativePath,
+				};
+			}),
+		);
+		if (!thread.working) {
+			// 主动发送的新要求不恢复被停止的旧队列。
+			if (thread.queuePaused && queuedId) void steerQueuedPrompt(thread.key, queuedId);
+			else void dispatchNextQueuedPrompt(thread.key);
 		}
-		playSound("send");
-		void sendPrompt(thread.key, message, images.length > 0 ? images : undefined);
 	};
 
 	const handleEditQueued = (queued: QueuedPrompt): void => {
-		removeQueuedPrompt(thread.key, queued.id);
+		if (!removeQueuedPrompt(thread.key, queued.id)) return;
 		setText(queued.text);
 		if (queued.attachments && queued.attachments.length > 0) {
 			const restored: ComposerAttachment[] = queued.attachments.map(att => {
@@ -690,6 +690,8 @@ export function Composer({ thread, autoFocus }: { thread: Thread; autoFocus?: bo
 			<QueuedPromptTray
 				threadKey={thread.key}
 				prompts={thread.queuedPrompts}
+				paused={thread.queuePaused}
+				disabled={!connected}
 				onEdit={handleEditQueued}
 			/>
 			<div

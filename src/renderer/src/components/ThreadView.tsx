@@ -372,6 +372,7 @@ function UserMessageBubble({
 	const [copied, setCopied] = useState(false);
 	const [isEditing, setIsEditing] = useState(false);
 	const [editText, setEditText] = useState("");
+	const [savingEdit, setSavingEdit] = useState(false);
 	const editInputRef = useRef<HTMLTextAreaElement | null>(null);
 	const userText = extractUserText(content);
 	const timeStr = formatMessageTime(timestamp);
@@ -402,9 +403,13 @@ function UserMessageBubble({
 
 	const handleSaveAndResend = async (): Promise<void> => {
 		const trimmed = editText.trim();
-		if (!trimmed) return;
-		setIsEditing(false);
-		await editAndResendPrompt(threadKey, entryId, trimmed);
+		if (!trimmed || savingEdit) return;
+		setSavingEdit(true);
+		try {
+			if (await editAndResendPrompt(threadKey, entryId, trimmed)) setIsEditing(false);
+		} finally {
+			setSavingEdit(false);
+		}
 	};
 
 	return (
@@ -446,7 +451,7 @@ function UserMessageBubble({
 									<button
 										type="button"
 										className="th-user-edit-btn is-submit"
-										disabled={!editText.trim()}
+										disabled={!editText.trim() || savingEdit}
 										onClick={() => void handleSaveAndResend()}
 									>
 										重新发送
