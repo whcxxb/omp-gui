@@ -42,9 +42,83 @@ function assertIsolated() {
 	}
 }
 
+/**
+ * 写入一个固定的夹具会话，供「折叠思考与工具调用」用例使用。
+ * 不依赖模型真实输出：结果确定、不消耗 token、不触网。
+ * 内容含 thinking + text + toolCall，覆盖折叠逻辑的两条分支。
+ */
+function seedCollapseFixture() {
+	const projectDir = join(process.cwd());
+	const dirName = `-${projectDir.replace(/^\//, "").replace(/\//g, "-")}`;
+	const dir = join(AGENT_DIR, "sessions", dirName);
+	mkdirSync(dir, { recursive: true });
+	const now = new Date().toISOString();
+	// id 必须是 UUID 形式；且首行不能放 title 槽——该槽是 256 字节定长结构，
+	// 格式不符时 omp 会把 title 行当成会话头并报 "session header is missing or malformed"。
+	const sessionId = crypto.randomUUID();
+	const rows = [
+		{ type: "session", version: 3, id: sessionId, timestamp: now, cwd: projectDir },
+		{
+			type: "message",
+			id: "fx-u1",
+			parentId: null,
+			timestamp: now,
+			message: { role: "user", content: "折叠夹具会话：请给出结论", timestamp: Date.now() },
+		},
+		{
+			type: "message",
+			id: "fx-a1",
+			parentId: "fx-u1",
+			timestamp: now,
+			message: {
+				role: "assistant",
+				api: "fixture",
+				provider: "fixture",
+				model: "fixture",
+				stopReason: "stop",
+				timestamp: Date.now(),
+				usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+				content: [
+					{ type: "thinking", thinking: "夹具思考内容，应当默认折叠。" },
+					{ type: "text", text: "." },
+					{ type: "toolCall", id: "fx-tc1", name: "bash", arguments: { command: "echo fixture" } },
+				],
+			},
+		},
+		{
+			type: "message",
+			id: "fx-tr1",
+			parentId: "fx-a1",
+			timestamp: now,
+			message: { role: "toolResult", toolCallId: "fx-tc1", toolName: "bash", content: [{ type: "text", text: "fixture" }], isError: false, timestamp: Date.now() },
+		},
+		{
+			type: "message",
+			id: "fx-a2",
+			parentId: "fx-tr1",
+			timestamp: now,
+			message: {
+				role: "assistant",
+				api: "fixture",
+				provider: "fixture",
+				model: "fixture",
+				stopReason: "stop",
+				timestamp: Date.now(),
+				usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+				content: [
+					{ type: "thinking", thinking: "第二轮思考，也应折叠。" },
+					{ type: "text", text: "这是最终结论：夹具验证通过。" },
+				],
+			},
+		},
+	];
+	writeFileSync(join(dir, `${now.slice(0, 10)}T00-00-00-000Z_${sessionId}.jsonl`), rows.map(r => JSON.stringify(r)).join("\n") + "\n");
+}
+
 async function run() {
 	assertIsolated();
 	seedSandbox();
+	seedCollapseFixture();
 	console.log("沙箱目录:", SANDBOX);
 	console.log("启动 Electron 测试实例 (CDP 端口", PORT, ")...");
 	const electron = spawn(
@@ -560,7 +634,88 @@ async function run() {
 			for (const it of items) if (it.title === "E2E 粘贴截图待办") await window.omp.deleteTodo(threads[0].cwd, it.id);
 		})()`);
 
-		console.log("17. 冒烟测试全部通过！");
+		console.log("17. 测试新建对话不堆积（Codex 式：空对话复用、发送后才入列）...");
+		const newThreadFlow = await evalJs(`(async () => {
+			const titles = () => [...document.querySelectorAll(".sb-thread-title")].map(t => t.textContent);
+			const blankCount = () => titles().filter(t => t === "新对话").length;
+
+			// 连点两次「新对话」，应复用同一个空对话而不是堆积
+			document.querySelector(".sb-action")?.click();
+			await new Promise(r => setTimeout(r, 1800));
+			const afterFirst = blankCount();
+			document.querySelector(".sb-action")?.click();
+			await new Promise(r => setTimeout(r, 1800));
+			const afterSecond = blankCount();
+
+			// 空对话应排在项目第一位，且处于高亮态
+			const firstTitle = titles()[0];
+			const firstIsActive = document.querySelector(".sb-thread-li .sb-thread")?.classList.contains("is-active");
+
+			// 发一条消息后，它应变成正常会话项（标题来自首条消息）
+			const ta = document.querySelector(".cp-input");
+			Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(ta, "回复：收到");
+			ta.dispatchEvent(new Event("input", { bubbles: true }));
+			await new Promise(r => setTimeout(r, 300));
+			document.querySelector(".cp-send")?.click();
+			await new Promise(r => setTimeout(r, 6000));
+			return { afterFirst, afterSecond, firstTitle, firstIsActive, afterSend: titles().slice(0, 2) };
+		})()`);
+		if (newThreadFlow.afterSecond > 1) {
+			throw new Error(`空对话堆积：连点两次后出现 ${newThreadFlow.afterSecond} 个「新对话」`);
+		}
+		if (!newThreadFlow.firstIsActive) {
+			throw new Error("新建的空对话未排在项目第一位 / 未高亮");
+		}
+		console.log("   空对话复用正常（1 个），且置顶高亮:", JSON.stringify(newThreadFlow.afterSend));
+
+		console.log("18. 测试已完成轮次默认折叠思考与工具调用，只留结论...");
+		// 打开夹具会话（由 seedSandbox 预写入沙箱，含 thinking + toolCall + text）
+		await evalJs(`[...document.querySelectorAll(".sb-thread")].find(b => b.textContent.includes("夹具会话"))?.click()`);
+		let fixtureReady = false;
+		for (let i = 0; i < 80; i++) {
+			fixtureReady = await evalJs('document.querySelectorAll(".th-assistant").length > 0');
+			if (fixtureReady) break;
+			await new Promise(r => setTimeout(r, 300));
+		}
+		if (!fixtureReady) throw new Error("夹具会话未渲染出任何助手消息");
+		await new Promise(r => setTimeout(r, 800));
+
+		const collapse = await evalJs(`(() => {
+			const rows = [...document.querySelectorAll(".th-assistant")].map(el => ({
+				thinks: el.querySelectorAll(".th-think").length,
+				tools: el.querySelectorAll(".tv-card").length,
+				mdCount: el.querySelectorAll(".tr-md").length,
+				toggle: el.querySelector(".th-details-toggle")?.textContent.trim() ?? null,
+			}));
+			const withText = rows.filter(r => r.mdCount > 0);
+			return {
+				turns: rows.length,
+				withText: withText.length,
+				leakedThink: withText.filter(r => r.thinks > 0).length,
+				leakedTool: withText.filter(r => r.tools > 0).length,
+				toggles: rows.filter(r => r.toggle).length,
+			};
+		})()`);
+		if (collapse.withText === 0) throw new Error("夹具会话未渲染出正文，无法校验折叠");
+		if (collapse.leakedThink > 0 || collapse.leakedTool > 0) {
+			throw new Error(`折叠失效：有正文的轮仍显示 think=${collapse.leakedThink} tool=${collapse.leakedTool}`);
+		}
+		if (collapse.toggles === 0) throw new Error("未渲染「展开过程」开关");
+		console.log("   折叠正常（只留结论）:", JSON.stringify(collapse));
+
+		// 点开「展开过程」应还原思考与工具卡片
+		const expanded = await evalJs(`(async () => {
+			const before = document.querySelectorAll(".tv-card").length;
+			document.querySelector(".th-details-toggle")?.click();
+			await new Promise(r => setTimeout(r, 500));
+			return { before, after: document.querySelectorAll(".tv-card").length };
+		})()`);
+		if (expanded.after <= expanded.before) {
+			throw new Error(`展开过程无效：工具卡片 ${expanded.before} -> ${expanded.after}`);
+		}
+		console.log("   展开过程正常：工具卡片", expanded.before, "->", expanded.after);
+
+		console.log("19. 冒烟测试全部通过！");
 		ws.close();
 	} finally {
 		try {

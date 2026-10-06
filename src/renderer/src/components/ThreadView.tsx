@@ -143,6 +143,24 @@ function AssistantBody({ threadKey, entryId, message, results, active, pending }
 	const last = message.content.length - 1;
 	const assistantText = extractAssistantText(message);
 
+	/**
+	 * 已完成的一轮里，思考过程与工具调用默认折叠，只留最终结论。
+	 * 进行中的消息（pending）保持展开，便于实时观察。
+	 * 仅当确实存在正文时折叠，否则会把整轮内容藏起来、看起来像空回复。
+	 */
+	const blocks = message.content;
+	const lastTextIndex = blocks.reduce((acc, b, i) => (b.type === "text" && b.text.trim() ? i : acc), -1);
+	const collapsible = !pending && lastTextIndex !== -1;
+	const hiddenCount = collapsible
+		? blocks.filter((b, i) => i !== lastTextIndex && (b.type === "thinking" || b.type === "toolCall")).length
+		: 0;
+	const [showDetails, setShowDetails] = useState(false);
+
+	// 切换到另一条消息时重置展开状态，避免复用到下一轮
+	useEffect(() => {
+		setShowDetails(false);
+	}, [entryId, threadKey]);
+
 	const handleCopy = (): void => {
 		if (!assistantText) return;
 		void navigator.clipboard.writeText(assistantText);
@@ -161,7 +179,24 @@ function AssistantBody({ threadKey, entryId, message, results, active, pending }
 
 	return (
 		<div className="th-assistant">
-			{message.content.map((block, i) => {
+			{collapsible && hiddenCount > 0 && (
+				<button
+					type="button"
+					className={`th-details-toggle${showDetails ? " is-open" : ""}`}
+					onClick={() => setShowDetails(v => !v)}
+					aria-expanded={showDetails}
+				>
+					<ChevronRight size={12} className={`th-chev${showDetails ? " is-open" : ""}`} />
+					<span>
+						{showDetails ? "收起过程" : `展开过程（${hiddenCount} 步）`}
+					</span>
+				</button>
+			)}
+			{blocks.map((block, i) => {
+				// 折叠态下隐藏思考与工具调用，仅保留最后一段正文
+				if (collapsible && !showDetails && i !== lastTextIndex && (block.type === "thinking" || block.type === "toolCall")) {
+					return null;
+				}
 				switch (block.type) {
 					case "thinking":
 						return block.thinking.trim() ? (

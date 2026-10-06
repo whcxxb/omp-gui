@@ -41,6 +41,8 @@ async function readSummary(file: string): Promise<SessionSummary | null> {
 	const [head, info] = await Promise.all([readHead(file), stat(file)]);
 	let title: string | null = null;
 	let firstPrompt: string | null = null;
+	/** 是否存在真实对话内容（用户或助手消息）；仅有 session 头的空会话为 false */
+	let hasMessages = false;
 	type Header = { id?: string; cwd?: string; timestamp?: string };
 	let header: Header | null = null;
 	for (const line of head.split("\n")) {
@@ -54,14 +56,16 @@ async function readSummary(file: string): Promise<SessionSummary | null> {
 		}
 		if (row.type === "title" && typeof row.title === "string" && row.title.trim()) title = row.title.trim();
 		else if (row.type === "session") header = row as Header;
-		else if (row.type === "message" && firstPrompt === null) {
+		else if (row.type === "message") {
 			const message = row.message as { role?: string; content?: unknown } | undefined;
-			if (message?.role === "user") {
+			if (message?.role === "user" || message?.role === "assistant") hasMessages = true;
+			if (message?.role === "user" && firstPrompt === null) {
 				const text = textOf(message.content).replace(/\s+/g, " ").trim();
 				if (text) firstPrompt = text.slice(0, TITLE_FALLBACK_CHARS);
 			}
 		}
-		if (header && title) break;
+		// hasMessages 决定侧边栏是否展示，不能因提前跳出而漏判
+		if (header && title && hasMessages) break;
 	}
 	if (!header?.id || !header.cwd) return null;
 	return {
@@ -69,6 +73,7 @@ async function readSummary(file: string): Promise<SessionSummary | null> {
 		id: header.id,
 		title: title ?? firstPrompt,
 		cwd: header.cwd,
+		hasMessages,
 		createdAt: header.timestamp ? Date.parse(header.timestamp) : info.birthtimeMs,
 		updatedAt: info.mtimeMs,
 	};

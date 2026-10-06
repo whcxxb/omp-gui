@@ -292,11 +292,14 @@ export function Sidebar(props: SidebarProps): ReactNode {
 			const seenFiles = new Set<string>();
 			const seenKeys = new Set<string>();
 
-			// 1. 已持久化的历史会话
+			// 1. 已持久化的历史会话（跳过尚未发送任何消息的空会话，与 Codex 一致）
 			for (const session of project.sessions) {
 				seenFiles.add(session.file);
 				const open = threadByFile.get(session.file);
 				if (open) seenKeys.add(open.key);
+
+				// 空会话文件：只有确实打开了对应对话时才展示（此时由下方 active 分支处理）
+				if (!session.hasMessages && !open) continue;
 
 				const threadTime = open ? getThreadLatestTime(open, session.updatedAt) : session.updatedAt;
 				const updatedAt = Math.max(session.updatedAt, threadTime);
@@ -322,7 +325,7 @@ export function Sidebar(props: SidebarProps): ReactNode {
 				seenKeys.add(t.key);
 				const threadTime = getThreadLatestTime(t, t.updatedAt ?? t.createdAt ?? 0);
 				const updatedAt = threadTime > 0 ? threadTime : (t.updatedAt ?? t.createdAt ?? 0);
-				const title = t.state?.sessionName || "新对话";
+				const title = t.state?.sessionName || t.titleOverride || "新对话";
 
 				items.push({
 					key: t.key,
@@ -333,8 +336,9 @@ export function Sidebar(props: SidebarProps): ReactNode {
 				});
 			}
 
-			// 按最新的修改/活动时间从新到旧排序，时间相同时按 key 稳定排序
+			// 排序：当前激活的对话永远置顶，其余按最近活动时间降序，时间相同按 key 稳定排序
 			items.sort((a, b) => {
+				if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
 				if (b.updatedAt !== a.updatedAt) return b.updatedAt - a.updatedAt;
 				return a.key.localeCompare(b.key);
 			});

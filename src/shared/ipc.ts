@@ -11,6 +11,8 @@ export interface SessionSummary {
 	id: string;
 	title: string | null;
 	cwd: string;
+	/** 是否已包含真实对话内容；false 表示只创建了会话文件、尚未发送任何消息 */
+	hasMessages: boolean;
 	/** 会话创建时间（毫秒） */
 	createdAt: number;
 	/** 文件最后修改时间（毫秒） */

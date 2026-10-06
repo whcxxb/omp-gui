@@ -166,8 +166,10 @@ export function App(): ReactNode {
 	const newThread = useCallback((cwd: string): void => {
 		playSound("switch");
 		setCurrentProject(cwd);
-		// 复用当前项目里尚未发送过消息的空对话
-		const blank = threads.find(t => t.cwd === cwd && t.entries.length === 0 && !t.sessionFile && t.status !== "exited");
+		// 复用当前项目里尚未发送过消息的空对话。
+		// 不能用 !sessionFile 判断：omp 进程一启动就会创建会话文件，该条件永远不成立，
+		// 会导致每次点击都堆积一个「新对话」。
+		const blank = threads.find(t => t.cwd === cwd && t.entries.length === 0 && !t.working && t.status !== "exited");
 		setActiveKey(blank ? blank.key : createThread(cwd));
 	}, [threads]);
 
