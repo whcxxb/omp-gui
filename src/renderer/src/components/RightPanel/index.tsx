@@ -122,18 +122,22 @@ export function RightPanel({ thread, onInsertText }: RightPanelProps): ReactNode
 						title="文件"
 						onClick={() => setRightPanelTab(thread.key, "files")}
 					>
-						<FolderTree size={13} />
-						<span>文件</span>
+						<span className="rp-tab-icon">
+							<FolderTree size={13} />
+						</span>
+						<span className="rp-tab-label">文件</span>
 					</button>
 
 					<button
 						type="button"
 						className={`rp-tab${activeTab === "git" ? " is-active" : ""}`}
-						title="Git 变更"
+						title={gitChangesCount > 0 ? `Git 变更（${gitChangesCount} 处）` : "Git 变更"}
 						onClick={() => setRightPanelTab(thread.key, "git")}
 					>
-						<GitBranch size={13} />
-						<span>Git</span>
+						<span className="rp-tab-icon">
+							<GitBranch size={13} />
+						</span>
+						<span className="rp-tab-label">Git</span>
 						{gitChangesCount > 0 && <span className="rp-badge">{gitChangesCount}</span>}
 					</button>
 
@@ -143,18 +147,22 @@ export function RightPanel({ thread, onInsertText }: RightPanelProps): ReactNode
 						title="终端"
 						onClick={() => setRightPanelTab(thread.key, "terminal")}
 					>
-						<Terminal size={13} />
-						<span>终端</span>
+						<span className="rp-tab-icon">
+							<Terminal size={13} />
+						</span>
+						<span className="rp-tab-label">终端</span>
 					</button>
 
 					<button
 						type="button"
 						className={`rp-tab${activeTab === "subagents" ? " is-active" : ""}`}
-						title="子任务"
+						title={subagentCount > 0 ? `子任务（${subagentCount} 个）` : "子任务"}
 						onClick={() => setRightPanelTab(thread.key, "subagents")}
 					>
-						<Workflow size={13} />
-						<span>子任务</span>
+						<span className="rp-tab-icon">
+							<Workflow size={13} />
+						</span>
+						<span className="rp-tab-label">子任务</span>
 						{subagentCount > 0 && <span className="rp-badge is-sub">{subagentCount}</span>}
 					</button>
 
@@ -164,8 +172,10 @@ export function RightPanel({ thread, onInsertText }: RightPanelProps): ReactNode
 						title="项目待办清单"
 						onClick={() => setRightPanelTab(thread.key, "todos")}
 					>
-						<ListChecks size={13} />
-						<span>待办</span>
+						<span className="rp-tab-icon">
+							<ListChecks size={13} />
+						</span>
+						<span className="rp-tab-label">待办</span>
 					</button>
 				</div>
 

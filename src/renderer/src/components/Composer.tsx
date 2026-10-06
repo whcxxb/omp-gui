@@ -1053,7 +1053,7 @@ function ThinkingPicker({ thread }: { thread: Thread }): ReactNode {
 }
 function ApprovalModePicker({ thread }: { thread: Thread }): ReactNode {
 	const [open, setOpen, ref] = usePopover();
-	const currentMode = thread.approvalMode ?? "yolo";
+	const currentMode = thread.pendingApprovalMode ?? thread.approvalMode ?? "yolo";
 	const current = APPROVAL_CONFIG[currentMode] ?? APPROVAL_CONFIG.yolo;
 
 	const Icon = currentMode === "write" ? ShieldCheck : currentMode === "always-ask" ? ShieldAlert : Shield;
@@ -1063,12 +1063,12 @@ function ApprovalModePicker({ thread }: { thread: Thread }): ReactNode {
 			<button
 				type="button"
 				className="pk-trigger"
-				title={`审批模式：${current.label}（${current.desc}）`}
+				title={`审批模式：${current.label}（${current.desc}）${thread.pendingApprovalMode ? "，当前任务结束后生效" : ""}`}
 				disabled={thread.status !== "ready"}
 				onClick={() => setOpen(!open)}
 			>
 				<Icon size={13} />
-				<span className="pk-label">{current.label}</span>
+				<span className="pk-label">{current.label}{thread.pendingApprovalMode ? "（待生效）" : ""}</span>
 				<ChevronDown size={12} />
 			</button>
 			{open && (

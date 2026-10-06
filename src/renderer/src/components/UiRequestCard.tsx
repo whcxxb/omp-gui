@@ -5,7 +5,9 @@ import type { UiRequest } from "@/state/types";
 /** omp 需要用户决定的请求（工具审批、ask 工具的选择/输入等），显示在输入框上方。 */
 export function UiRequestCard({ threadKey, request }: { threadKey: string; request: UiRequest }): ReactNode {
 	const [value, setValue] = useState(request.method === "editor" ? (request.prefill ?? "") : "");
-	const cancel = (): void => answerUiRequest(threadKey, request.id, { cancelled: true });
+	const cancel = (): void => {
+		void answerUiRequest(threadKey, request.id, { cancelled: true });
+	};
 
 	switch (request.method) {
 		case "select": {

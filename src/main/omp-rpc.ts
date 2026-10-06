@@ -6,10 +6,16 @@ import type { ApprovalMode } from "@shared/ipc";
 
 type Frame = Record<string, unknown>;
 
+const REQUEST_TIMEOUT_MS = 30_000;
+const SLOW_REQUEST_TIMEOUT_MS = 300_000;
+const READY_TIMEOUT_MS = 60_000;
+const SLOW_COMMANDS = new Set(["prompt", "steer", "follow_up", "abort_and_prompt", "abort", "branch", "compact", "switch_session", "new_session", "fork"]);
+
 interface Pending {
 	resolve: (data: unknown) => void;
 	reject: (error: Error) => void;
 	command: string;
+	timer: ReturnType<typeof setTimeout>;
 }
 
 interface ChunkBuffer {
@@ -50,6 +56,9 @@ export class OmpRpc extends EventEmitter {
 	#chunks = new Map<string, ChunkBuffer>();
 	#seq = 0;
 	#exited = false;
+	#disposing = false;
+	#writes = new Set<(error: Error) => void>();
+	#disposeTimers: ReturnType<typeof setTimeout>[] = [];
 	readonly ready: Promise<void>;
 
 	constructor(options: OmpRpcOptions) {
@@ -69,10 +78,21 @@ export class OmpRpc extends EventEmitter {
 
 		let onReady!: () => void;
 		let onFail!: (error: Error) => void;
+		let readyTimer: ReturnType<typeof setTimeout>;
 		this.ready = new Promise<void>((resolve, reject) => {
-			onReady = resolve;
-			onFail = reject;
+			onReady = () => {
+				clearTimeout(readyTimer);
+				resolve();
+			};
+			onFail = error => {
+				clearTimeout(readyTimer);
+				reject(error);
+			};
 		});
+		readyTimer = setTimeout(() => {
+			onFail(new RpcError("omp 启动握手超时，请检查进程输出后重新连接", "ready", "TIMEOUT"));
+		}, READY_TIMEOUT_MS);
+		readyTimer.unref();
 		this.once("ready-frame", (frame: Frame) => {
 			const versions = frame.supportedProtocolVersions;
 			if (Array.isArray(versions) && versions.includes(2)) {
@@ -85,7 +105,14 @@ export class OmpRpc extends EventEmitter {
 		this.#child.stdout.on("data", (text: string) => this.#onData(text));
 		this.#child.stderr.on("data", (text: string) => this.emit("stderr", text));
 		// 进程已死但 exit 尚未触发时写入会报 EPIPE；不处理会成为主进程未捕获异常
-		this.#child.stdin.on("error", error => this.emit("stderr", `omp stdin 写入失败：${error.message}\n`));
+		this.#child.stdin.on("error", error => {
+			const message = `omp stdin 写入失败：${error.message}`;
+			onFail(new Error(message));
+			this.#rejectPending(message, "WRITE_FAILED");
+			for (const rejectWrite of [...this.#writes]) rejectWrite(new Error(message));
+			this.emit("stderr", `${message}\n`);
+			this.emit("frame", { type: "notice", level: "error", message });
+		});
 		this.#child.on("error", error => {
 			onFail(error);
 			this.#finish(null, null, error.message);
@@ -109,18 +136,37 @@ export class OmpRpc extends EventEmitter {
 		if (this.#exited) return Promise.reject(new RpcError("omp 进程已退出", type));
 		const id = `r${++this.#seq}`;
 		return new Promise<T>((resolve, reject) => {
-			this.#pending.set(id, { resolve: resolve as (data: unknown) => void, reject, command: type });
-			this.#write({ ...payload, id, type });
+			const timeoutMs = SLOW_COMMANDS.has(type) ? SLOW_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
+			const timer = setTimeout(() => {
+				const pending = this.#pending.get(id);
+				if (!pending) return;
+				this.#pending.delete(id);
+				pending.reject(new RpcError(
+					`omp 命令 ${type} 响应超时（${timeoutMs / 1000} 秒）。任务可能仍在运行，请检查会话状态；未自动停止或重新发送。`,
+					type,
+					"TIMEOUT",
+				));
+			}, timeoutMs);
+			timer.unref();
+			this.#pending.set(id, { resolve: resolve as (data: unknown) => void, reject, command: type, timer });
+			void this.#write({ ...payload, id, type }).catch(error => {
+				const pending = this.#pending.get(id);
+				if (!pending) return;
+				clearTimeout(pending.timer);
+				this.#pending.delete(id);
+				pending.reject(new RpcError(error instanceof Error ? error.message : String(error), type, "WRITE_FAILED"));
+			});
 		});
 	}
 
 	/** 发送无需响应的帧（如 extension_ui_response）。 */
-	send(frame: Frame): void {
-		if (!this.#exited) this.#write(frame);
+	send(frame: Frame): Promise<void> {
+		return this.#write(frame);
 	}
 
 	dispose(): void {
-		if (this.#exited) return;
+		if (this.#exited || this.#disposing) return;
+		this.#disposing = true;
 		this.#child.stdin.end();
 		const timer = setTimeout(() => {
 			if (!this.#exited) this.#child.kill("SIGTERM");
@@ -130,11 +176,32 @@ export class OmpRpc extends EventEmitter {
 			if (!this.#exited) this.#child.kill("SIGKILL");
 		}, 5000);
 		hard.unref();
+		this.#disposeTimers.push(timer, hard);
 	}
 
-	#write(frame: Frame): void {
-		if (!this.#child.stdin.writable) return;
-		this.#child.stdin.write(`${JSON.stringify(frame)}\n`);
+	#write(frame: Frame): Promise<void> {
+		return new Promise<void>((resolve, reject) => {
+			const input = this.#child.stdin;
+			if (this.#exited || this.#disposing || !input.writable || input.destroyed || input.writableEnded) {
+				reject(new Error("omp 输入通道不可写，命令未发送"));
+				return;
+			}
+			const finish = (error?: Error | null): void => {
+				clearTimeout(timer);
+				this.#writes.delete(fail);
+				if (error) reject(error);
+				else resolve();
+			};
+			const fail = (error: Error): void => finish(error);
+			const timer = setTimeout(() => fail(new Error("omp 写入超时，任务可能仍在运行，请检查会话状态")), REQUEST_TIMEOUT_MS);
+			timer.unref();
+			this.#writes.add(fail);
+			try {
+				input.write(`${JSON.stringify(frame)}\n`, finish);
+			} catch (error) {
+				fail(error instanceof Error ? error : new Error(String(error)));
+			}
+		});
 	}
 
 	#onData(text: string): void {
@@ -193,6 +260,7 @@ export class OmpRpc extends EventEmitter {
 					return;
 				}
 				this.#pending.delete(id);
+				clearTimeout(pending.timer);
 				if (frame.success === true) pending.resolve(frame.data);
 				else
 					pending.reject(
@@ -212,10 +280,20 @@ export class OmpRpc extends EventEmitter {
 	#finish(code: number | null, signal: string | null, reason?: string): void {
 		if (this.#exited) return;
 		this.#exited = true;
+		for (const timer of this.#disposeTimers) clearTimeout(timer);
+		this.#disposeTimers = [];
+		const message = reason ?? "omp 进程已退出";
+		this.#rejectPending(message);
+		for (const rejectWrite of [...this.#writes]) rejectWrite(new Error(message));
+		this.#chunks.clear();
+		this.emit("exit", code, signal);
+	}
+
+	#rejectPending(message: string, code?: string): void {
 		for (const [, pending] of this.#pending) {
-			pending.reject(new RpcError(reason ?? "omp 进程已退出", pending.command));
+			clearTimeout(pending.timer);
+			pending.reject(new RpcError(message, pending.command, code));
 		}
 		this.#pending.clear();
-		this.emit("exit", code, signal);
 	}
 }

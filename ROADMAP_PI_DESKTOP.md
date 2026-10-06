@@ -30,7 +30,7 @@
 - [x] **Feature-04: Agent / Plan 双模式切换门禁 (ModePicker)** (已于 2026-10-03 落地) [参考 pi-desktop]
 - [x] **Feature-07: Markdown 渲染层原生 Mermaid 流程图与架构图** (已于 2026-10-03 落地) [参考 pi-desktop]
 - [x] **Feature-13: 右侧栏 Tab 自适应收窄（窄宽度只留图标，禁止文字折行）** (已于 2026-10-06 落地)
-  - *实现*：`.rp-panel` 声明 `container: rp / inline-size`，`.rp-tab` 加 `white-space: nowrap` 与 `flex: 0 0 auto`；`@container rp (max-width: 320px)` 内隐藏文字标签、收窄内边距。实测四标签齐全需 251px，260px 面板仅余 218px 可用，故阈值取 320px，默认宽度 340px 不受影响。
+  - *实现*：`.rp-panel` 声明 `container: rp / inline-size`，`.rp-tab` 加 `white-space: nowrap`；`@container rp (max-width: 332px)` 内隐藏文字标签。阈值由实测确定（见 Feature-18），默认宽度 340px 下标签常显。
 - [x] **Feature-14: 设置页全局提示词（指令）展示与编辑** (已于 2026-10-06 落地)
   - *实现*：新增 `src/main/prompt-files.ts` 读写 `~/.omp/agent/` 下的 `AGENTS.md`、`RULES.md`、`APPEND_SYSTEM.md`、`SYSTEM.md`、`PERSONALITY.md`；设置页新增「全局提示词」Tab（`PromptFilesPanel.tsx`），支持就地编辑、还原、在外部编辑器打开；清空保存会备份为 `.bak` 并停用该文件。已验证写入内容会被 OMP 注入系统提示并影响模型输出。
 - [x] **Fix: 移除固定在底部的 Todo HUD，任务看板回归对话流** (已于 2026-10-06 落地)
@@ -48,6 +48,11 @@
 - [x] **Feature-17: 已完成轮次默认折叠思考与工具调用，只留结论** (已于 2026-10-06 落地)
   - *改动*：`ThreadView` 的 `AssistantBody` 在非流式（已完成）且存在正文时，默认隐藏 thinking 与 toolCall，仅保留最后一段正文，并渲染「展开过程（N 步）」开关；进行中的消息保持展开以便实时观察；切换消息时重置展开态。仅当确有正文时才折叠，避免把整轮内容藏成空回复。
   - *效果*：30 轮的会话折叠后仅 2 个思考块 + 2 个工具卡片可见（均为无正文轮），有正文的 27 轮全部只剩结论。
+- [x] **Feature-18: 右侧栏 Tab 头部排布修复（标签常显 + 铺满 + 徽标归位）** (已于 2026-10-06 落地)
+  - *问题*：Feature-13 的容器查询阈值（460px）远高于实际所需，默认 340px 面板下五个标签**全部被隐藏**，头部只余图标与游离的数字徽标（如孤零零的「24」）；同时 `.rp-tab` 用 `flex: 0 0 auto` 按内容定宽，Tab 条 297px 仅用掉 143px，**右侧留下 154px 空白**；数量徽标排在标签之前渲染成「12Git」。
+  - *实测*：默认 340px 面板的 Tab 条宽 297px；标签齐全需 285px，叠加「Git 变更」「子任务」两个数量徽标后需 289px（内边距/间距各 4px、徽标 14px 高）——即 460px 阈值纯属保守误判。
+  - *改动*：阈值下调至 `@container rp (max-width: 332px)`；`.rp-tab` 改 `flex: 1 1 auto` + `justify-content: center`，按内容定宽并均分富余空间铺满头部；徽标移出 `.rp-tab-icon` 作为标签后缀（DOM 顺序 icon → label → badge），数量同时写入 Tab `title`；`.td-filter` 补上「已归档 N」计数，与「未完成 N / 全部 N」口径一致。
+  - *效果*：340px 下标签全显且铺满（用量 289/297，空白 8px），300px 以下降级为纯图标；e2e 新增第 5 步布局断言（标签隐藏/截断、头部空白 >20px、徽标顺序、窄态降级），并已用回退阈值验证该断言确实会失败。
 
 ### 待实现候选功能（每日筛选 2 条实施）
 - [ ] **Feature-05: 全局会话与提问全文检索 (Omni Search)** [参考 pi-desktop]
@@ -73,3 +78,4 @@
 | 2026-10-05 | can1357/oh-my-pi 同步至 18.6.2 (1c0993c) | Shiki 高亮细粒度按需加载与 LRU 缓存 + marked lexer 分段重构 | 270754e / 66c857d / 5c71928 / c7ccdf8 | 已落地 |
 | 2026-10-06 | — | 右侧栏 Tab 窄宽度自适应 (Feature-13) + 设置页全局提示词编辑 (Feature-14) + 移除固定底部 Todo HUD | 待提交 | 已落地 |
 | 2026-10-06 | — | 项目待办清单：右侧栏工作区 + 模型可维护 (Feature-15) | 待提交 | 已落地 |
+| 2026-10-06 | — | 右侧栏 Tab 头部排布修复：标签常显/铺满/徽标归位 (Feature-18) | 待提交 | 已落地 |

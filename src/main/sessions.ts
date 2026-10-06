@@ -1,4 +1,5 @@
 // 扫描 omp 会话目录，按项目（cwd）分组。
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { open, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -43,7 +44,7 @@ async function readSummary(file: string): Promise<SessionSummary | null> {
 	let firstPrompt: string | null = null;
 	/** 是否存在真实对话内容（用户或助手消息）；仅有 session 头的空会话为 false */
 	let hasMessages = false;
-	type Header = { id?: string; cwd?: string; timestamp?: string };
+	type Header = { id?: string; cwd?: string; timestamp?: string; title?: string };
 	let header: Header | null = null;
 	for (const line of head.split("\n")) {
 		if (!line.trim()) continue;
@@ -55,7 +56,10 @@ async function readSummary(file: string): Promise<SessionSummary | null> {
 			break;
 		}
 		if (row.type === "title" && typeof row.title === "string" && row.title.trim()) title = row.title.trim();
-		else if (row.type === "session") header = row as Header;
+		else if (row.type === "session") {
+			header = row as Header;
+			if (!title && typeof header.title === "string" && header.title.trim()) title = header.title.trim();
+		} else if (row.type === "title_change" && typeof row.title === "string" && row.title.trim()) title = row.title.trim();
 		else if (row.type === "message") {
 			const message = row.message as { role?: string; content?: unknown } | undefined;
 			if (message?.role === "user" || message?.role === "assistant") hasMessages = true;
@@ -133,45 +137,57 @@ export async function deleteSessionFile(file: string): Promise<boolean> {
 	return false;
 }
 
-export async function renameSessionFile(file: string, newTitle: string): Promise<boolean> {
-	const dir = resolve(sessionsDir());
+/** Validate the supplied journal path without modifying it. */
+export async function readSessionHeader(file: string): Promise<{ file: string; id: string; cwd: string; legacyTitle: boolean }> {
 	const normalized = resolve(file);
-	if (!normalized.startsWith(dir + sep)) {
-		throw new Error("非法会话路径");
-	}
-	if (!existsSync(normalized)) return false;
-
-	const content = await readFile(normalized, "utf8");
-	const trimmedTitle = newTitle.trim();
-	const newlineIndex = content.indexOf("\n");
-	const firstLine = newlineIndex !== -1 ? content.slice(0, newlineIndex) : content;
-	const rest = newlineIndex !== -1 ? content.slice(newlineIndex + 1) : "";
-
-	let updated = false;
+	if (!normalized.startsWith(resolve(sessionsDir()) + sep)) throw new Error("非法会话路径");
+	const head = await readHead(normalized);
+	const rows = head.split("\n");
+	let first: Record<string, unknown>;
+	let header: Record<string, unknown>;
 	try {
-		const parsed = JSON.parse(firstLine) as Record<string, unknown>;
-		if (parsed.type === "title") {
-			parsed.title = trimmedTitle;
-			parsed.source = "custom";
-			parsed.updatedAt = new Date().toISOString();
-			await writeFile(normalized, `${JSON.stringify(parsed)}\n${rest}`, "utf8");
-			updated = true;
-		}
-	} catch {
-		// first line wasn't valid JSON title
+		first = JSON.parse(rows[0]);
+		header = first.type === "title" ? JSON.parse(rows[1]) : first;
+	} catch { throw new Error("会话头格式无效，原文件未修改"); }
+	if (header.type !== "session" || typeof header.id !== "string" || typeof header.cwd !== "string") {
+		throw new Error("会话头格式无效，原文件未修改");
 	}
+	const nativeSlot = first.type === "title" && first.v === 1 && typeof first.pad === "string"
+		&& typeof first.title === "string" && typeof first.updatedAt === "string"
+		&& (first.source === undefined || first.source === "auto" || first.source === "user");
+	const legacyTitle = first.type === "title" && !nativeSlot;
+	if (legacyTitle && !(first.v === 1 && typeof first.title === "string" && typeof first.updatedAt === "string"
+		&& (first.source === "custom" || first.source === "fork"))) {
+		throw new Error("无法确认旧版会话格式，原文件未修改");
+	}
+	return { file: normalized, id: header.id, cwd: header.cwd, legacyTitle };
+}
 
-	if (!updated) {
-		const newTitleObj = {
-			type: "title",
-			v: 1,
-			title: trimmedTitle,
-			source: "custom",
-			updatedAt: new Date().toISOString(),
-		};
-		await writeFile(normalized, `${JSON.stringify(newTitleObj)}\n${content}`, "utf8");
+/** Recover only the recognized legacy GUI prefix into a new journal; keep the source as its byte-for-byte backup. */
+export async function recoverLegacySessionCopy(file: string): Promise<string> {
+	const info = await readSessionHeader(file);
+	if (!info.legacyTitle) return info.file;
+	const original = await readFile(info.file);
+	const firstEnd = original.indexOf(10);
+	const headerEnd = original.indexOf(10, firstEnd + 1);
+	if (firstEnd < 0 || headerEnd < 0) throw new Error("旧会话头不完整，原文件未修改");
+	const prefix = JSON.parse(original.subarray(0, firstEnd).toString("utf8")) as { title: string };
+	const header = JSON.parse(original.subarray(firstEnd + 1, headerEnd).toString("utf8")) as Record<string, unknown>;
+	if (header.type !== "session" || header.id !== info.id) throw new Error("会话已变化，请重新打开");
+	// Confirm a complete JSONL snapshot before creating a recovered identity.
+	for (const line of original.subarray(headerEnd + 1).toString("utf8").split("\n")) {
+		if (line.trim()) JSON.parse(line);
 	}
-	return true;
+	if (!(await readFile(info.file)).equals(original)) throw new Error("会话仍在写入，请停止后重新打开");
+	const id = randomUUID();
+	const timestamp = new Date().toISOString();
+	const target = join(resolve(info.file, ".."), `${timestamp.replace(/[:.]/g, "-")}_${id}.jsonl`);
+	const recovered = Buffer.concat([
+		Buffer.from(`${JSON.stringify({ ...header, id, timestamp, title: prefix.title, titleSource: "user", parentSession: info.file })}\n`),
+		original.subarray(headerEnd + 1),
+	]);
+	await writeFile(target, recovered, { flag: "wx" });
+	return target;
 }
 
 export async function readSessionExcerpt(file: string, maxTurns = 6): Promise<string> {
@@ -219,95 +235,3 @@ export async function readSessionExcerpt(file: string, maxTurns = 6): Promise<st
 	}
 }
 
-export async function forkSession(options: {
-	cwd: string;
-	sourceSessionFile: string;
-	targetEntryId: string;
-}): Promise<string> {
-	const dir = resolve(sessionsDir());
-	const normalized = resolve(options.sourceSessionFile);
-	if (!normalized.startsWith(dir + sep)) {
-		throw new Error("非法会话路径");
-	}
-	if (!existsSync(normalized)) {
-		throw new Error("源会话文件不存在");
-	}
-
-	const content = await readFile(normalized, "utf8");
-	const lines = content.split("\n");
-
-	type Entry = { id?: string; parentId?: string | null; type?: string; [key: string]: unknown };
-	const allEntries: Entry[] = [];
-	let headerRow: Entry | null = null;
-	let title = "会话分支";
-
-	for (const line of lines) {
-		if (!line.trim()) continue;
-		try {
-			const row = JSON.parse(line) as Entry;
-			if (row.type === "title" && typeof row.title === "string") {
-				title = `${row.title} (分支)`;
-			} else if (row.type === "session") {
-				headerRow = row;
-			} else {
-				allEntries.push(row);
-			}
-		} catch {}
-	}
-
-	// 从 targetEntryId 向上回溯到根节点
-	const byId = new Map<string, Entry>();
-	for (const e of allEntries) {
-		if (e.id) byId.set(e.id, e);
-	}
-
-	const branchChain: Entry[] = [];
-	let curr = byId.get(options.targetEntryId);
-	while (curr) {
-		branchChain.push(curr);
-		curr = curr.parentId ? byId.get(curr.parentId) : undefined;
-	}
-	branchChain.reverse();
-
-	const finalEntries = branchChain.length > 0 ? branchChain : allEntries;
-
-	const parentDir = resolve(normalized, "..");
-	const newUuid = crypto.randomUUID();
-	const nowIso = new Date().toISOString();
-	const timeFilePrefix = nowIso.replace(/[:.]/g, "-");
-	const newFileName = `${timeFilePrefix}_${newUuid}.jsonl`;
-	const newFilePath = join(parentDir, newFileName);
-
-	const newHeader: Entry = {
-		...(headerRow || {}),
-		type: "session",
-		version: 3,
-		id: newUuid,
-		timestamp: nowIso,
-		cwd: options.cwd,
-		title,
-		titleSource: "fork",
-		forkedFrom: {
-			file: basename(options.sourceSessionFile),
-			entryId: options.targetEntryId,
-		},
-	};
-
-	const titleHeader = {
-		type: "title",
-		v: 1,
-		title,
-		source: "fork",
-		updatedAt: nowIso,
-	};
-
-	const outputLines = [
-		JSON.stringify(titleHeader),
-		JSON.stringify(newHeader),
-		...finalEntries.map(e => JSON.stringify(e)),
-		"",
-	];
-
-	await writeFile(newFilePath, outputLines.join("\n"), "utf8");
-	return newFilePath;
-}

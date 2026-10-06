@@ -701,12 +701,17 @@
 	overflow: hidden;
 }
 
+/* 五个 Tab 按内容定宽、均分富余空间：既不留大片空白，也保证点击区足够大。
+   内边距/间距取 4px 是实测预算：标签 + 两个数量徽标（Git 变更、子任务）合计
+   约 290px，默认 340px 面板的 Tab 条宽 297px，可完整容纳且不截断标签。
+   面板收窄到 332px 以下才降级为纯图标（此时徽标紧随图标显示）。 */
 .rp-tab {
 	display: inline-flex;
 	align-items: center;
-	gap: 5px;
+	justify-content: center;
+	gap: 4px;
 	height: 26px;
-	padding: 0 8px;
+	padding: 0 4px;
 	border: 0;
 	border-radius: var(--radius-sm);
 	background: transparent;
@@ -715,26 +720,25 @@
 	font-weight: 500;
 	line-height: 1;
 	white-space: nowrap;
-	flex: 0 0 auto;
+	flex: 1 1 auto;
+	min-width: 0;
 	cursor: pointer;
 	transition: all 120ms ease;
 }
 
-/* 面板收窄时优先隐藏文字标签，只保留图标与徽标，避免文字折行挤压。
-   实测五个标签齐全（含「Git 8」「子任务 3」两个徽标）约需 436px，再加关闭按钮 24px
-   与内边距，故阈值取 460px。默认宽度 340px 因此走图标模式，避免徽标把标签挤成竖排。 */
-.rp-tab span:not(.rp-badge) {
+.rp-tab-icon {
+	display: inline-flex;
+	flex: none;
+}
+
+.rp-tab-label {
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
 
-@container rp (max-width: 460px) {
-	.rp-tab {
-		padding: 0 7px;
-	}
-
-	.rp-tab > span:not(.rp-badge) {
+@container rp (max-width: 332px) {
+	.rp-tab-label {
 		display: none;
 	}
 }
@@ -750,19 +754,23 @@
 	font-weight: 600;
 }
 
+/* 数量徽标作为标签后缀内联渲染（如「Git 12」），语义直白且不存在与标签
+   重叠的可能；面板收窄到 332px 以下时标签隐藏，徽标紧随图标，仍是常规的
+   图标角标形态。完整数量同时写入 Tab 的 title。 */
 .rp-badge {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
 	flex: none;
-	min-width: 16px;
-	height: 16px;
-	padding: 0 4px;
+	min-width: 14px;
+	height: 14px;
+	padding: 0 3px;
 	border-radius: 9999px;
 	background: var(--bg-active);
 	color: var(--fg);
-	font-size: 10px;
+	font-size: 9.5px;
 	font-weight: 600;
+	line-height: 1;
 }
 
 .rp-badge.is-sub {

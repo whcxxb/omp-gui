@@ -15,6 +15,7 @@ import { playSound } from "./lib/sound";
 import { applyTheme, loadTheme } from "./lib/theme";
 import { shortPath } from "./lib/time";
 import {
+	checkThreadConnection,
 	closeThread,
 	createThread,
 	dismissNotice,
@@ -675,6 +676,15 @@ function ThreadPane(props: {
 						<button type="button" className="btn" onClick={() => reconnect(thread.key)}>
 							<RotateCw size={13} />
 							重新连接
+						</button>
+					</div>
+				)}
+				{thread.status === "ready" && thread.connectionError && (
+					<div className="dock-error">
+						<span>{thread.connectionError}</span>
+						<button type="button" className="btn" onClick={() => void checkThreadConnection(thread.key)}>
+							<RotateCw size={13} />
+							检查连接
 						</button>
 					</div>
 				)}

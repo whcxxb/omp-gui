@@ -61,7 +61,7 @@ function ThinkingBlock({ text, redacted, live }: { text: string; redacted?: bool
 	if (redacted) {
 		label = "思考过程（已隐藏）";
 	} else if (live) {
-		label = elapsedSec > 0 ? `深度思考中 (${elapsedSec}s)...` : "深度思考中...";
+		label = elapsedSec > 0 ? `深度思考中 (${elapsedSec}s) · ${charCount.toLocaleString()} 字符` : "深度思考中...";
 	} else if (charCount > 0) {
 		label = elapsedSec > 0 ? `已思考 ${elapsedSec}s · ${charCount.toLocaleString()} 字符` : `已深度思考 · ${charCount.toLocaleString()} 字符`;
 	}
@@ -744,7 +744,9 @@ export function ThreadView({ thread }: { thread: Thread }): ReactNode {
 					{working && !stream && activeTools.size === 0 && (
 						<div className="th-working-pill">
 							<Brain size={14} className="th-working-icon is-pulsing" />
-							<span className="th-shimmer">正在思考与构思...</span>
+							<span className="th-shimmer" title={thread.lastEventAt ? `最近活动：${new Date(thread.lastEventAt).toLocaleTimeString()}` : undefined}>
+								{thread.uiRequests.length > 0 ? "等待你的回复..." : thread.activity === "compacting" ? "正在压缩上下文..." : thread.activity === "retrying" ? "等待重试..." : "等待模型响应..."}
+							</span>
 						</div>
 					)}
 				</div>

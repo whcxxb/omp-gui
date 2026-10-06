@@ -27,6 +27,8 @@ export interface QueuedPrompt {
 	images?: ImageContent[];
 	attachments?: QueuedPromptAttachment[];
 	createdAt: number;
+	delivery?: "sending" | "failed" | "unknown";
+	error?: string;
 }
 
 /** omp 实际下发、但上游 wire 类型未声明的计时与用量字段；collab 目录由同步脚本覆盖，扩展放在这里 */
@@ -89,6 +91,9 @@ export interface SessionStateSnapshot {
 	model?: ModelInfo;
 	thinkingLevel?: string;
 	isStreaming: boolean;
+	isCompacting?: boolean;
+	hasPendingAsyncWork?: boolean;
+	isSettled?: boolean;
 	sessionFile?: string;
 	sessionId: string;
 	sessionName?: string;
@@ -117,6 +122,7 @@ export interface Thread {
 	cwd: string;
 	sessionFile?: string;
 	approvalMode: ApprovalMode;
+	pendingApprovalMode?: ApprovalMode;
 	executionMode: ExecutionMode;
 	status: ThreadStatus;
 	error?: string;
@@ -125,6 +131,10 @@ export interface Thread {
 	streamDone: boolean;
 	activeTools: ReadonlyMap<string, ActiveTool>;
 	working: boolean;
+	activity?: "thinking" | "compacting" | "retrying";
+	lastEventAt?: number;
+	lastEventType?: string;
+	connectionError?: string;
 	state: SessionStateSnapshot | null;
 	subagents: SubagentSnapshot[];
 	activeSubagentId: string | null;
@@ -133,6 +143,8 @@ export interface Thread {
 	isSubagentPanelOpen: boolean;
 	uiRequests: UiRequest[];
 	queuedPrompts: QueuedPrompt[];
+	queuePaused?: boolean;
+	editing?: boolean;
 	notices: Notice[];
 	/** 待办「开始工作」指定的模型；attach 时在主进程完成切换 */
 	modelOverride?: ModelRef;

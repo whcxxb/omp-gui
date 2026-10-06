@@ -253,6 +253,62 @@ async function run() {
 		if (!subagentActive) throw new Error("子任务 Tab 切换失败");
 		console.log("   右侧面板与子任务 Tab 展开成功");
 
+		// Tab 头部布局：标签常显、按内容定宽铺满、收窄才降级为纯图标。
+		// 历史缺陷：阈值设在 460px 导致默认 340px 面板下标签全被隐藏，仅剩图标与
+		// 游离的数字徽标；且徽标排在标签前渲染成「12Git」。
+		const tabLayout = await evalJs(`(async () => {
+			const panel = document.querySelector(".rp-panel");
+			const strip = document.querySelector(".rp-tabs");
+			const snapshot = () => {
+				const tabs = [...document.querySelectorAll(".rp-tab")];
+				return {
+					stripW: +strip.getBoundingClientRect().width.toFixed(1),
+					used: +tabs.reduce((a, t) => a + t.getBoundingClientRect().width, 0).toFixed(1),
+					labels: tabs.map(t => {
+						const label = t.querySelector(".rp-tab-label");
+						return {
+							text: label.textContent,
+							hidden: getComputedStyle(label).display === "none",
+							clipped: label.scrollWidth > label.clientWidth + 1,
+							hasIcon: !!t.querySelector(".rp-tab-icon svg"),
+						};
+					}),
+					gitOrder: (() => {
+						const t = [...tabs].find(b => b.title.startsWith("Git"));
+						return [...t.children].map(c => c.className);
+					})(),
+				};
+			};
+			const prev = panel.style.width;
+			panel.style.width = "340px";
+			await new Promise(r => setTimeout(r, 250));
+			const wide = snapshot();
+			panel.style.width = "300px";
+			await new Promise(r => setTimeout(r, 250));
+			const narrow = snapshot();
+			panel.style.width = prev;
+			await new Promise(r => setTimeout(r, 200));
+			return { wide, narrow };
+		})()`);
+
+		const { wide, narrow } = tabLayout;
+		if (wide.labels.some(l => l.hidden)) {
+			throw new Error(`默认宽度下标签被隐藏：${JSON.stringify(wide.labels)}`);
+		}
+		if (wide.labels.some(l => l.clipped)) {
+			throw new Error(`默认宽度下标签被截断：${JSON.stringify(wide.labels.filter(l => l.clipped))}`);
+		}
+		if (wide.stripW - wide.used > 20) {
+			throw new Error(`Tab 未铺满头部，空白 ${(wide.stripW - wide.used).toFixed(1)}px（条宽 ${wide.stripW}，用量 ${wide.used}）`);
+		}
+		if (wide.gitOrder[wide.gitOrder.length - 1] !== "rp-badge") {
+			throw new Error(`数量徽标未排在标签之后：${JSON.stringify(wide.gitOrder)}`);
+		}
+		if (!narrow.labels.every(l => l.hidden && l.hasIcon)) {
+			throw new Error(`收窄到 300px 未降级为纯图标：${JSON.stringify(narrow.labels)}`);
+		}
+		console.log(`   Tab 头部布局正常：340px 标签全显且铺满（${wide.used}/${wide.stripW}），300px 降级为图标`);
+
 		// 收起右侧面板
 		await evalJs('document.querySelector(".rp-close-btn")?.click()');
 		await new Promise(r => setTimeout(r, 200));

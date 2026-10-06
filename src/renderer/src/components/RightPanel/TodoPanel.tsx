@@ -63,6 +63,7 @@ export function TodoPanel({ cwd }: { cwd: string }): ReactNode {
 	}, [todos, filter]);
 
 	const openCount = todos.filter(item => item.status === "todo" || item.status === "doing").length;
+	const archivedCount = todos.filter(item => item.status === "done" || item.status === "dropped").length;
 
 	const onDrop = async (event: DragEvent, target: TodoItem): Promise<void> => {
 		event.preventDefault();
@@ -88,7 +89,7 @@ export function TodoPanel({ cwd }: { cwd: string }): ReactNode {
 							className={`td-filter${filter === mode ? " is-active" : ""}`}
 							onClick={() => setFilter(mode)}
 						>
-							{mode === "open" ? `未完成 ${openCount}` : mode === "all" ? `全部 ${todos.length}` : "已归档"}
+							{mode === "open" ? `未完成 ${openCount}` : mode === "all" ? `全部 ${todos.length}` : `已归档 ${archivedCount}`}
 						</button>
 					))}
 				</div>

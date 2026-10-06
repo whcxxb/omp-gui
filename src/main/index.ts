@@ -8,7 +8,7 @@ import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from "electro
 import { gitCommitDetail, gitCommitDiff, gitDiff, gitLog, gitStatus, listDir, openInEditor, searchProjectFiles } from "./git-fs";
 import { cleanupTerminalProcesses, registerTerminalIpc } from "./terminal";
 import { detectDefaultApprovalMode, loginEnv, ompVersion, resolveOmp, RuntimePool } from "./runtimes";
-import { deleteSessionFile, forkSession, groupProjects, readSessionExcerpt, renameSessionFile, scanSessions, sessionsDir } from "./sessions";
+import { deleteSessionFile, groupProjects, readSessionExcerpt, scanSessions, sessionsDir } from "./sessions";
 import { readPromptFiles, writePromptFile } from "./prompt-files";
 import { PROJECT_TODO_DEFINITION, PROJECT_TODO_TOOL, runProjectTodoTool } from "./host-tools";
 import { addAttachment, createTodo, deleteTodo, listTodos, readAttachment, recordRun, removeAttachment, reorderTodos, updateTodo } from "./todos";
@@ -182,7 +182,7 @@ function registerIpc(): void {
 		return success;
 	});
 	ipcMain.handle("omp:rename-session", async (_e, file: string, title: string) => {
-		const success = await renameSessionFile(file, title);
+		const success = await pool.renameSession(file, title);
 		win?.webContents.send("omp:projects-changed");
 		return success;
 	});
@@ -197,7 +197,7 @@ function registerIpc(): void {
 	ipcMain.handle("omp:close-runtime", (_e, runtimeId: string) => pool.close(runtimeId));
 	ipcMain.handle("omp:request", (_e, runtimeId: string, command: Record<string, unknown>) => {
 		const { type, ...payload } = command;
-		return pool.get(runtimeId).request(String(type), payload);
+		return pool.request(runtimeId, String(type), payload);
 	});
 	ipcMain.handle("omp:send", (_e, runtimeId: string, frame: Record<string, unknown>) => pool.get(runtimeId).send(frame));
 	ipcMain.handle("omp:version", () => ompVersion());
@@ -245,7 +245,7 @@ function registerIpc(): void {
 	ipcMain.handle("omp:git-diff", (_e, options: GitDiffOptions) => gitDiff(options));
 	ipcMain.handle("omp:open-in-editor", (_e, cwd: string, file: string) => openInEditor(cwd, file));
 	ipcMain.handle("omp:search-project-files", (_e, cwd: string, query?: string) => searchProjectFiles(cwd, query));
-	ipcMain.handle("omp:fork-session", (_e, options) => forkSession(options));
+	ipcMain.handle("omp:fork-session", (_e, options) => pool.forkSession(options));
 	ipcMain.handle("omp:git-log", (_e, cwd: string, limit?: number) => gitLog(cwd, limit));
 	ipcMain.handle("omp:git-commit-detail", (_e, cwd: string, hash: string) => gitCommitDetail(cwd, hash));
 	ipcMain.handle("omp:git-commit-diff", (_e, cwd: string, hash: string, file?: string) => gitCommitDiff(cwd, hash, file));
