@@ -230,9 +230,19 @@ function AssistantBody({
 		return parts.length > 0 ? parts.join(" · ") : `${totalTools} 步操作`;
 	}, [turnStats]);
 
+	const hasVisibleBlocks = blocks.some((b, i) => !isCollapsibleBlock(b.type, i));
+	const showRollup = Boolean(
+		isTurnSummaryAnchor && turnCompleted && turnStats && (turnStats.totalTools > 0 || turnStats.totalThinks > 0),
+	);
+
+	// 折叠状态下，若当前消息内部所有步骤均已折叠且无正文，跳过 DOM 挂载以消除多余空行与外边距
+	if (!hasVisibleBlocks && !showRollup && !pending && !assistantText && !message.stopReason && !message.errorMessage) {
+		return null;
+	}
+
 	return (
 		<div className="th-assistant">
-			{isTurnSummaryAnchor && turnCompleted && turnStats && (turnStats.totalTools > 0 || turnStats.totalThinks > 0) && (
+			{showRollup && (
 				<div className="th-turn-rollup">
 					<button
 						type="button"
@@ -243,7 +253,7 @@ function AssistantBody({
 					>
 						<ChevronRight size={12} className={`th-chev${turnExpanded ? " is-open" : ""}`} />
 						<span className="th-rollup-badge">
-							{turnStats.totalTools > 0 ? <Wrench size={11} className="th-rollup-icon" /> : <Brain size={11} className="th-rollup-icon" />}
+							{turnStats!.totalTools > 0 ? <Wrench size={11} className="th-rollup-icon" /> : <Brain size={11} className="th-rollup-icon" />}
 							<span>{turnExpanded ? "收起过程" : `展开过程（${rollupLabel}）`}</span>
 						</span>
 					</button>
@@ -589,7 +599,8 @@ export function ThreadView({ thread }: { thread: Thread }): ReactNode {
 			const toolCounts: Record<string, number> = {};
 			let totalTools = 0;
 			let totalThinks = 0;
-			let anchorId: string | null = null;
+			// 汇总开关固定在回合最上方（首条助手消息），并在展开长流时吸顶悬停，随时随地触手可及
+			const anchorId = currentTurnEntries[0]?.id ?? null;
 
 			for (const item of currentTurnEntries) {
 				for (const b of item.message.content) {
@@ -598,15 +609,8 @@ export function ThreadView({ thread }: { thread: Thread }): ReactNode {
 						toolCounts[b.name] = (toolCounts[b.name] ?? 0) + 1;
 					} else if (b.type === "thinking" || b.type === "redactedThinking") {
 						totalThinks++;
-					} else if (b.type === "text" && b.text.trim()) {
-						anchorId = item.id;
 					}
 				}
-			}
-
-			// 若本回合有正文结论，锚点即为最后一条带正文的消息；若纯工具则选最后一条
-			if (!anchorId && currentTurnEntries.length > 0) {
-				anchorId = currentTurnEntries[currentTurnEntries.length - 1].id;
 			}
 
 			const stats: TurnStats = { toolCounts, totalTools, totalThinks };
