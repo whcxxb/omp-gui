@@ -234,9 +234,11 @@ function AssistantBody({
 	const showRollup = Boolean(
 		isTurnSummaryAnchor && turnCompleted && turnStats && (turnStats.totalTools > 0 || turnStats.totalThinks > 0),
 	);
+	const hasVisibleStopReason =
+		!pending && (message.stopReason === "error" || message.stopReason === "aborted" || message.stopReason === "length");
 
 	// 折叠状态下，若当前消息内部所有步骤均已折叠且无正文，跳过 DOM 挂载以消除多余空行与外边距
-	if (!hasVisibleBlocks && !showRollup && !pending && !assistantText && !message.stopReason && !message.errorMessage) {
+	if (!hasVisibleBlocks && !showRollup && !pending && !hasVisibleStopReason) {
 		return null;
 	}
 
