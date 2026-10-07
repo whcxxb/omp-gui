@@ -82,7 +82,8 @@ function walk(dir) {
 			if (full.endsWith("math.ts")) {
 				out = out
 					.replace("startFrom: mathStartIndex,", "start(source) {\n				return mathStartIndex(source);\n			},")
-					.replace("mathSpanInContext(this, source)", "mathSpanInContext(this as any, source)");
+					.replace("mathSpanInContext(this, source)", "mathSpanInContext(this as any, source)")
+					.replace("mathBlockInContext(this, source)", "mathBlockInContext(this as any, source)");
 			}
 			if (out !== src) writeFileSync(full, out);
 		}
