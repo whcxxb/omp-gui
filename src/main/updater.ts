@@ -235,16 +235,25 @@ export class AppUpdater {
 		}
 	}
 
+	private getHeaders(): Record<string, string> {
+		const headers: Record<string, string> = {
+			"User-Agent": "OMP-GUI-Updater",
+			Accept: "application/vnd.github.v3+json",
+		};
+		const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+		if (token) {
+			headers.Authorization = `Bearer ${token}`;
+		}
+		return headers;
+	}
+
 	private fetchLatestRelease(): Promise<GitHubReleaseResponse | null> {
 		const { promise, resolve, reject } = Promise.withResolvers<GitHubReleaseResponse | null>();
 		const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
 		const req = httpGet(
 			url,
 			{
-				headers: {
-					"User-Agent": "OMP-GUI-Updater",
-					Accept: "application/vnd.github.v3+json",
-				},
+				headers: this.getHeaders(),
 			},
 			res => {
 				if (res.statusCode === 301 || res.statusCode === 302) {
@@ -304,13 +313,16 @@ export class AppUpdater {
 	private downloadFile(url: string, dest: string, onProgress: (progress: number) => void): Promise<void> {
 		const { promise, resolve, reject } = Promise.withResolvers<void>();
 		const request = (targetUrl: string): void => {
+			const headers: Record<string, string> = { "User-Agent": "OMP-GUI-Updater" };
+			const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+			// 如果是 GitHub API 资源下载且携带 token
+			if (token && targetUrl.includes("api.github.com")) {
+				headers.Authorization = `Bearer ${token}`;
+				headers.Accept = "application/octet-stream";
+			}
 			httpGet(
 				targetUrl,
-				{
-					headers: {
-						"User-Agent": "OMP-GUI-Updater",
-					},
-				},
+				{ headers },
 				res => {
 					if (res.statusCode === 301 || res.statusCode === 302) {
 						const redirectUrl = res.headers.location;
