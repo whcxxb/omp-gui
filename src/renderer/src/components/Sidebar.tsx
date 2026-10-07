@@ -339,9 +339,8 @@ export function Sidebar(props: SidebarProps): ReactNode {
 			});
 		}
 
-		// 默认按最新活动时间倒序，激活项优先
+		// 稳定排序：严格按最近修改/活动时间 (updatedAt) 降序排列；时间相同按 key 稳定排序（绝不因为点击选中就跳到第一位）
 		items.sort((a, b) => {
-			if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
 			if (b.updatedAt !== a.updatedAt) return b.updatedAt - a.updatedAt;
 			return a.key.localeCompare(b.key);
 		});
