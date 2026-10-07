@@ -517,7 +517,7 @@
 	min-height: 0;
 	overflow-y: auto;
 	overflow-x: hidden;
-	padding: 0 0 12px 0;
+	padding: 0 4px 12px 6px;
 }
 
 .sb-scroll::-webkit-scrollbar {
@@ -630,8 +630,8 @@
 	display: flex;
 	align-items: center;
 	width: 100%;
-	min-height: 40px;
-	padding: 5px 6px 5px 22px;
+	min-height: 38px;
+	padding: 4px 6px 4px 20px;
 	border: 1px solid transparent;
 	border-radius: var(--radius-sm);
 	background: transparent;
@@ -678,11 +678,12 @@
 .sb-thread-title-row {
 	display: flex;
 	align-items: center;
-	gap: 4px;
+	min-width: 0;
 }
 
 .sb-thread-title {
-	flex: 1;
+	display: block;
+	width: 100%;
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -759,8 +760,8 @@
 
 .sb-dot {
 	position: absolute;
-	left: 9px;
-	top: 14px;
+	left: 8px;
+	top: 13px;
 	width: 6px;
 	height: 6px;
 	border-radius: 50%;
@@ -4882,38 +4883,50 @@
 }
 
 /* ---------- 快捷按钮与操作 ---------- */
-
 .sb-thread-actions {
+	position: absolute;
+	right: 4px;
+	top: 50%;
+	transform: translateY(-50%);
 	display: flex;
 	align-items: center;
 	gap: 2px;
-	margin-left: auto;
-	flex-shrink: 0;
+	padding: 2px;
+	border-radius: var(--radius-sm);
+	background: var(--bg-hover);
+	box-shadow: -4px 0 8px 2px var(--bg-hover);
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity 120ms ease;
+	z-index: 2;
+}
+
+.sb-thread.is-active .sb-thread-actions {
+	background: var(--bg-active);
+	box-shadow: -4px 0 8px 2px var(--bg-active);
+}
+
+.sb-thread:hover .sb-thread-actions,
+.sb-thread:focus-within .sb-thread-actions {
+	opacity: 1;
+	pointer-events: auto;
 }
 
 .sb-thread-rename,
 .sb-thread-pin,
 .sb-thread-delete {
-	opacity: 0;
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	width: 20px;
-	height: 20px;
+	width: 18px;
+	height: 18px;
 	border: none;
 	border-radius: var(--radius-sm);
 	background: transparent;
 	color: var(--fg-faint);
 	cursor: pointer;
-	transition: opacity 120ms ease, color 120ms ease, background-color 100ms ease;
+	transition: color 100ms ease, background-color 100ms ease;
 	flex-shrink: 0;
-}
-
-.sb-thread:hover .sb-thread-rename,
-.sb-thread:hover .sb-thread-pin,
-.sb-thread:hover .sb-thread-delete,
-.sb-thread-pin.is-pinned {
-	opacity: 1;
 }
 
 .sb-thread-pin.is-pinned {
