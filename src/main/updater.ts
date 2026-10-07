@@ -67,12 +67,19 @@ export class AppUpdater {
 
 	public getAppVersion(): string {
 		try {
+			// 热更新只替换 app.asar，Info.plist 依然是外壳的初始版本号
+			// 因此读取 package.json 内的真实业务版本号
+			const pkgPath = join(app.getAppPath(), "package.json");
+			if (existsSync(pkgPath)) {
+				const content = ofs.readFileSync(pkgPath, "utf8");
+				const pkg = JSON.parse(content) as { version?: string };
+				if (pkg.version) return pkg.version;
+			}
 			return app.getVersion();
 		} catch {
 			return "0.1.0";
 		}
 	}
-
 	private setStatus(status: UpdateStatus): void {
 		this.status = status;
 		const win = this.getWindow();
