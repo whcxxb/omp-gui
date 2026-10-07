@@ -377,6 +377,7 @@ export function App(): ReactNode {
 				activeKey={activeKey}
 				activeProject={activeProject}
 				ompVersion={ompVersion}
+				onSelectProject={path => setCurrentProject(path)}
 				onNewThread={newThread}
 				onOpenSession={openSession}
 				onSelectThread={selectThread}

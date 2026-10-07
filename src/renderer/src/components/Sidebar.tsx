@@ -1,11 +1,35 @@
-import { Archive, ArchiveRestore, ChevronRight, Download, Folder, FolderPlus, PanelLeft, Pencil, Pin, PinOff, Settings, SquarePen, Trash2, X } from "lucide-react";
+import {
+	Archive,
+	ArchiveRestore,
+	CheckCircle2,
+	ChevronDown,
+	ChevronRight,
+	Compass,
+	Download,
+	Folder,
+	FolderGit2,
+	FolderOpen,
+	FolderPlus,
+	GitBranch,
+	Loader2,
+	PanelLeft,
+	Pencil,
+	Pin,
+	PinOff,
+	Search,
+	Settings,
+	Sparkles,
+	SquarePen,
+	Terminal,
+	Trash2,
+	X,
+	Zap,
+} from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import type { ProjectSummary, SessionSummary } from "@shared/ipc";
-import { relativeTime, shortPath } from "@/lib/time";
+import type { GitStatusResult, ProjectSummary, SessionSummary } from "@shared/ipc";
+import { bucketByTimeline, relativeTime, shortPath } from "@/lib/time";
 import type { Thread } from "@/state/types";
 
-const COLLAPSED_LIMIT = 6;
-const UNCOLLAPSED_PROJECTS_KEY = "omp_gui_uncollapsed_projects";
 const PINNED_STORAGE_KEY = "omp_gui_pinned_sessions";
 const ARCHIVED_STORAGE_KEY = "omp_gui_archived_sessions";
 
@@ -41,6 +65,7 @@ interface SidebarProps {
 	activeProject: string | null;
 	ompVersion: string | null;
 	isSettingsActive?: boolean;
+	onSelectProject?(path: string): void;
 	onNewThread(cwd: string): void;
 	onOpenSession(session: SessionSummary): void;
 	onSelectThread(key: string): void;
@@ -58,9 +83,68 @@ interface SidebarProps {
 }
 
 export function Sidebar(props: SidebarProps): ReactNode {
-	const { projects, threads, activeKey, activeProject, ompVersion, sidebarWidth, onWidthChange, onResetWidth, onOpenSettings } = props;
+	const {
+		projects,
+		threads,
+		activeKey,
+		activeProject,
+		ompVersion,
+		sidebarWidth,
+		onWidthChange,
+		onResetWidth,
+		onOpenSettings,
+		onSelectProject,
+		onNewThread,
+		onOpenSession,
+		onSelectThread,
+		onAddProject,
+		onRemoveProject,
+		onDeleteSession,
+		onExportSession,
+		onRenameSession,
+		onCloseThread,
+		onToggleSidebar,
+		isSettingsActive,
+	} = props;
+
+	const [searchQuery, setSearchQuery] = useState("");
+	const [isProjectMenuOpen, setIsProjectMenuOpen] = useState(false);
+	const [gitStatus, setGitStatus] = useState<GitStatusResult | null>(null);
 	const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: SidebarThreadItem; projectPath: string } | null>(null);
 	const [isResizing, setIsResizing] = useState(false);
+	const [editingKey, setEditingKey] = useState<string | null>(null);
+	const [renameValue, setRenameValue] = useState("");
+	const renameInputRef = useRef<HTMLInputElement | null>(null);
+	const searchInputRef = useRef<HTMLInputElement | null>(null);
+
+	// 快捷键 `/` 快速聚焦搜索框
+	useEffect(() => {
+		const handleKeyDown = (e: KeyboardEvent): void => {
+			if (e.key === "/" && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA") {
+				e.preventDefault();
+				searchInputRef.current?.focus();
+			}
+		};
+		window.addEventListener("keydown", handleKeyDown);
+		return () => window.removeEventListener("keydown", handleKeyDown);
+	}, []);
+
+	// 监听 activeProject 变化，拉取轻量 Git 状态信息
+	useEffect(() => {
+		if (!activeProject || !window.omp?.gitStatus) {
+			setGitStatus(null);
+			return;
+		}
+		let cancelled = false;
+		window.omp.gitStatus(activeProject).then(res => {
+			if (!cancelled) setGitStatus(res);
+		}).catch(() => {
+			if (!cancelled) setGitStatus(null);
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, [activeProject]);
 
 	const startResize = (e: React.MouseEvent): void => {
 		e.preventDefault();
@@ -72,7 +156,7 @@ export function Sidebar(props: SidebarProps): ReactNode {
 
 		const onMouseMove = (moveEvent: MouseEvent): void => {
 			const delta = moveEvent.clientX - startX;
-			const next = Math.min(Math.max(startW + delta, 180), 500);
+			const next = Math.min(Math.max(startW + delta, 200), 520);
 			onWidthChange(next);
 		};
 
@@ -87,9 +171,6 @@ export function Sidebar(props: SidebarProps): ReactNode {
 		window.addEventListener("mousemove", onMouseMove);
 		window.addEventListener("mouseup", onMouseUp);
 	};
-	const [editingKey, setEditingKey] = useState<string | null>(null);
-	const [renameValue, setRenameValue] = useState("");
-	const renameInputRef = useRef<HTMLInputElement | null>(null);
 
 	useEffect(() => {
 		if (editingKey && renameInputRef.current) {
@@ -115,76 +196,11 @@ export function Sidebar(props: SidebarProps): ReactNode {
 		const currentEditing = editingKey;
 		setEditingKey(null);
 		setRenameValue("");
-		if (currentEditing && trimmed && trimmed !== item.title && props.onRenameSession) {
-			await props.onRenameSession(item, trimmed);
+		if (currentEditing && trimmed && trimmed !== item.title && onRenameSession) {
+			await onRenameSession(item, trimmed);
 		}
 	};
 
-	// 项目展开状态持久化（非互斥手风琴，各项目均可随时独立折叠和展开）
-	const [uncollapsed, setUncollapsed] = useState<Set<string>>(() => {
-		try {
-			const raw = localStorage.getItem(UNCOLLAPSED_PROJECTS_KEY);
-			if (raw !== null) {
-				return new Set(JSON.parse(raw) as string[]);
-			}
-		} catch {
-			return new Set();
-		}
-		return props.activeProject ? new Set([props.activeProject]) : new Set();
-	});
-
-	// 首次启动若无本地缓存，初始化展开当前活跃项目
-	useEffect(() => {
-		if (!props.activeProject) return;
-		try {
-			const raw = localStorage.getItem(UNCOLLAPSED_PROJECTS_KEY);
-			if (raw === null) {
-				setUncollapsed(prev => {
-					if (prev.size > 0) return prev;
-					const next = new Set([props.activeProject!]);
-					try {
-						localStorage.setItem(UNCOLLAPSED_PROJECTS_KEY, JSON.stringify([...next]));
-					} catch {}
-					return next;
-				});
-			}
-		} catch {}
-	}, [props.activeProject]);
-
-	const toggleProject = (path: string): void => {
-		setUncollapsed(prev => {
-			const next = toggle(prev, path);
-			try {
-				localStorage.setItem(UNCOLLAPSED_PROJECTS_KEY, JSON.stringify([...next]));
-			} catch {}
-			return next;
-		});
-	};
-
-	const expandProject = (path: string): void => {
-		setUncollapsed(prev => {
-			if (prev.has(path)) return prev;
-			const next = new Set(prev).add(path);
-			try {
-				localStorage.setItem(UNCOLLAPSED_PROJECTS_KEY, JSON.stringify([...next]));
-			} catch {}
-			return next;
-		});
-	};
-
-	const handleRemoveProject = (path: string): void => {
-		setUncollapsed(prev => {
-			if (!prev.has(path)) return prev;
-			const next = new Set(prev);
-			next.delete(path);
-			try {
-				localStorage.setItem(UNCOLLAPSED_PROJECTS_KEY, JSON.stringify([...next]));
-			} catch {}
-			return next;
-		});
-		props.onRemoveProject(path);
-	};
-	const [expanded, setExpanded] = useState<Set<string>>(new Set());
 	const [pinnedKeys, setPinnedKeys] = useState<Set<string>>(() => {
 		try {
 			const raw = localStorage.getItem(PINNED_STORAGE_KEY);
@@ -203,7 +219,7 @@ export function Sidebar(props: SidebarProps): ReactNode {
 		}
 	});
 
-	const [archivedExpanded, setArchivedExpanded] = useState<Set<string>>(new Set());
+	const [archivedExpanded, setArchivedExpanded] = useState(false);
 
 	const togglePin = (targetKey: string): void => {
 		setPinnedKeys(prev => {
@@ -219,9 +235,7 @@ export function Sidebar(props: SidebarProps): ReactNode {
 						aNext.delete(targetKey);
 						try {
 							localStorage.setItem(ARCHIVED_STORAGE_KEY, JSON.stringify([...aNext]));
-						} catch {
-							// ignore
-						}
+						} catch {}
 						return aNext;
 					}
 					return aPrev;
@@ -229,9 +243,7 @@ export function Sidebar(props: SidebarProps): ReactNode {
 			}
 			try {
 				localStorage.setItem(PINNED_STORAGE_KEY, JSON.stringify([...next]));
-			} catch {
-				// ignore
-			}
+			} catch {}
 			return next;
 		});
 	};
@@ -250,9 +262,7 @@ export function Sidebar(props: SidebarProps): ReactNode {
 						pNext.delete(targetKey);
 						try {
 							localStorage.setItem(PINNED_STORAGE_KEY, JSON.stringify([...pNext]));
-						} catch {
-							// ignore
-						}
+						} catch {}
 						return pNext;
 					}
 					return pPrev;
@@ -260,18 +270,9 @@ export function Sidebar(props: SidebarProps): ReactNode {
 			}
 			try {
 				localStorage.setItem(ARCHIVED_STORAGE_KEY, JSON.stringify([...next]));
-			} catch {
-				// ignore
-			}
+			} catch {}
 			return next;
 		});
-	};
-
-	const toggle = (set: Set<string>, value: string): Set<string> => {
-		const next = new Set(set);
-		if (next.has(value)) next.delete(value);
-		else next.add(value);
-		return next;
 	};
 
 	const threadByFile = useMemo(() => {
@@ -283,79 +284,117 @@ export function Sidebar(props: SidebarProps): ReactNode {
 		return map;
 	}, [threads]);
 
-	// 项目内对话按最新的修改时间统一降序排序
-	const projectThreadItems = useMemo(() => {
-		const map = new Map<string, SidebarThreadItem[]>();
+	// 当前选中的项目对象
+	const currentProjectObj = useMemo(() => {
+		return projects.find(p => p.path === activeProject) ?? projects[0] ?? null;
+	}, [projects, activeProject]);
 
-		for (const project of projects) {
-			const items: SidebarThreadItem[] = [];
-			const seenFiles = new Set<string>();
-			const seenKeys = new Set<string>();
+	// 当前项目的全部会话集合
+	const currentProjectItems = useMemo(() => {
+		if (!currentProjectObj) return [];
+		const items: SidebarThreadItem[] = [];
+		const seenFiles = new Set<string>();
+		const seenKeys = new Set<string>();
 
-			// 1. 已持久化的历史会话（跳过尚未发送任何消息的空会话，与 Codex 一致）
-			for (const session of project.sessions) {
-				seenFiles.add(session.file);
-				const open = threadByFile.get(session.file);
-				if (open) seenKeys.add(open.key);
+		// 1. 已持久化的历史会话
+		for (const session of currentProjectObj.sessions) {
+			seenFiles.add(session.file);
+			const open = threadByFile.get(session.file);
+			if (open) seenKeys.add(open.key);
 
-				// 空会话文件：只有确实打开了对应对话时才展示（此时由下方 active 分支处理）
-				if (!session.hasMessages && !open) continue;
+			if (!session.hasMessages && !open) continue;
 
-				const threadTime = open ? getThreadLatestTime(open, session.updatedAt) : session.updatedAt;
-				const updatedAt = Math.max(session.updatedAt, threadTime);
-				const title = open?.state?.sessionName || session.title || "未命名对话";
+			const threadTime = open ? getThreadLatestTime(open, session.updatedAt) : session.updatedAt;
+			const updatedAt = Math.max(session.updatedAt, threadTime);
+			const title = open?.state?.sessionName || session.title || "未命名对话";
 
-				items.push({
-					key: session.file,
-					title,
-					updatedAt,
-					thread: open,
-					session,
-					isActive: open ? open.key === activeKey : false,
-				});
-			}
-
-			// 2. 当前项目中已打开但尚未写入会话文件的对话（如新对话）
-			const projectThreads = threads.filter(t => t.cwd === project.path);
-			for (const t of projectThreads) {
-				if (seenKeys.has(t.key)) continue;
-				const file = t.sessionFile ?? t.state?.sessionFile;
-				if (file && seenFiles.has(file)) continue;
-
-				seenKeys.add(t.key);
-				const threadTime = getThreadLatestTime(t, t.updatedAt ?? t.createdAt ?? 0);
-				const updatedAt = threadTime > 0 ? threadTime : (t.updatedAt ?? t.createdAt ?? 0);
-				const title = t.state?.sessionName || t.titleOverride || "新对话";
-
-				items.push({
-					key: t.key,
-					title,
-					updatedAt,
-					thread: t,
-					isActive: t.key === activeKey,
-				});
-			}
-
-			// 排序：当前激活的对话永远置顶，其余按最近活动时间降序，时间相同按 key 稳定排序
-			items.sort((a, b) => {
-				if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
-				if (b.updatedAt !== a.updatedAt) return b.updatedAt - a.updatedAt;
-				return a.key.localeCompare(b.key);
+			items.push({
+				key: session.file,
+				title,
+				updatedAt,
+				thread: open,
+				session,
+				isActive: open ? open.key === activeKey : false,
 			});
-			map.set(project.path, items);
 		}
 
-		return map;
-	}, [projects, threads, threadByFile, activeKey]);
+		// 2. 当前项目中已打开但尚未写入会话文件的对话（如新对话）
+		const projectThreads = threads.filter(t => t.cwd === currentProjectObj.path);
+		for (const t of projectThreads) {
+			if (seenKeys.has(t.key)) continue;
+			const file = t.sessionFile ?? t.state?.sessionFile;
+			if (file && seenFiles.has(file)) continue;
+
+			seenKeys.add(t.key);
+			const threadTime = getThreadLatestTime(t, t.updatedAt ?? t.createdAt ?? 0);
+			const updatedAt = threadTime > 0 ? threadTime : (t.updatedAt ?? t.createdAt ?? 0);
+			const title = t.state?.sessionName || t.titleOverride || "新对话";
+
+			items.push({
+				key: t.key,
+				title,
+				updatedAt,
+				thread: t,
+				isActive: t.key === activeKey,
+			});
+		}
+
+		// 默认按最新活动时间倒序，激活项优先
+		items.sort((a, b) => {
+			if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
+			if (b.updatedAt !== a.updatedAt) return b.updatedAt - a.updatedAt;
+			return a.key.localeCompare(b.key);
+		});
+
+		return items;
+	}, [currentProjectObj, threads, threadByFile, activeKey]);
+
+	// 搜索过滤
+	const filteredItems = useMemo(() => {
+		const q = searchQuery.trim().toLowerCase();
+		if (!q) return currentProjectItems;
+		return currentProjectItems.filter(item => {
+			const modelName = item.thread?.state?.model?.name?.toLowerCase() || item.thread?.state?.model?.id?.toLowerCase() || "";
+			return item.title.toLowerCase().includes(q) || modelName.includes(q);
+		});
+	}, [currentProjectItems, searchQuery]);
+
+	// 正在运行或等待审批的活跃会话（Agent Hub 监控面）
+	const liveHubItems = useMemo(() => {
+		return currentProjectItems.filter(item => {
+			const t = item.thread;
+			if (!t) return false;
+			return t.working || t.uiRequests.length > 0;
+		});
+	}, [currentProjectItems]);
+
+	// 置顶项集合
+	const pinnedItems = useMemo(() => {
+		return filteredItems.filter(item => pinnedKeys.has(item.key));
+	}, [filteredItems, pinnedKeys]);
+
+	// 归档项集合
+	const archivedItems = useMemo(() => {
+		return filteredItems.filter(item => archivedKeys.has(item.key));
+	}, [filteredItems, archivedKeys]);
+
+	// 常规会话（非置顶、非归档）按时间线分组
+	const timelineBuckets = useMemo(() => {
+		const regulars = filteredItems.filter(item => !pinnedKeys.has(item.key) && !archivedKeys.has(item.key));
+		return bucketByTimeline(regulars, item => item.updatedAt);
+	}, [filteredItems, pinnedKeys, archivedKeys]);
 
 	const renderThreadItem = (item: SidebarThreadItem, isArchivedList = false): ReactNode => {
 		const isPinned = pinnedKeys.has(item.key);
+		const modelName = item.thread?.state?.model?.name || item.thread?.state?.model?.id;
+		const hasUiRequest = (item.thread?.uiRequests.length ?? 0) > 0;
+		const isWorking = Boolean(item.thread?.working);
 
 		return (
 			<li key={item.key} className="sb-thread-li">
 				<button
 					type="button"
-					className={`sb-thread${item.isActive ? " is-active" : ""}`}
+					className={`sb-thread${item.isActive ? " is-active" : ""}${isWorking ? " is-busy" : ""}${hasUiRequest ? " has-approval" : ""}`}
 					title={`${item.title} · ${relativeTime(item.updatedAt)} (可拖拽到输入框引入)`}
 					draggable={editingKey !== item.key}
 					onDragStart={e => {
@@ -376,8 +415,8 @@ export function Sidebar(props: SidebarProps): ReactNode {
 					}}
 					onClick={() => {
 						if (editingKey === item.key) return;
-						if (item.session) props.onOpenSession(item.session);
-						else if (item.thread) props.onSelectThread(item.thread.key);
+						if (item.session) onOpenSession(item.session);
+						else if (item.thread) onSelectThread(item.thread.key);
 					}}
 					onDoubleClick={e => startRenaming(item, e)}
 					onContextMenu={e => {
@@ -392,27 +431,44 @@ export function Sidebar(props: SidebarProps): ReactNode {
 					}}
 				>
 					<ThreadDot thread={item.thread} />
-					{editingKey === item.key ? (
-						<input
-							ref={renameInputRef}
-							className="sb-thread-rename-input"
-							value={renameValue}
-							onClick={e => e.stopPropagation()}
-							onChange={e => setRenameValue(e.target.value)}
-							onKeyDown={e => {
-								if (e.key === "Enter") {
-									e.preventDefault();
-									void commitRenaming(item);
-								} else if (e.key === "Escape") {
-									e.preventDefault();
-									cancelRenaming();
-								}
-							}}
-							onBlur={() => void commitRenaming(item)}
-						/>
-					) : (
-						<span className="sb-thread-title">{item.title}</span>
-					)}
+					<div className="sb-thread-main">
+						{editingKey === item.key ? (
+							<input
+								ref={renameInputRef}
+								className="sb-thread-rename-input"
+								value={renameValue}
+								onClick={e => e.stopPropagation()}
+								onChange={e => setRenameValue(e.target.value)}
+								onKeyDown={e => {
+									if (e.key === "Enter") {
+										e.preventDefault();
+										void commitRenaming(item);
+									} else if (e.key === "Escape") {
+										e.preventDefault();
+										cancelRenaming();
+									}
+								}}
+								onBlur={() => void commitRenaming(item)}
+							/>
+						) : (
+							<div className="sb-thread-title-row">
+								<span className="sb-thread-title">{item.title}</span>
+							</div>
+						)}
+						<div className="sb-thread-meta">
+							<span className="sb-thread-time">{relativeTime(item.updatedAt)}</span>
+							{modelName && (
+								<span className="sb-thread-badge" title={`绑定模型: ${modelName}`}>
+									{modelName.split("/").pop()}
+								</span>
+							)}
+							{item.thread?.activeTools && item.thread.activeTools.size > 0 && (
+								<span className="sb-thread-tool-chip">
+									{Array.from(item.thread.activeTools.values())[0]?.toolName}
+								</span>
+							)}
+						</div>
+					</div>
 					<div className="sb-thread-actions" onClick={e => e.stopPropagation()}>
 						{!isArchivedList && editingKey !== item.key && (
 							<button
@@ -445,9 +501,9 @@ export function Sidebar(props: SidebarProps): ReactNode {
 								onClick={e => {
 									e.stopPropagation();
 									if (item.session) {
-										props.onDeleteSession(item.session.file);
-									} else if (item.thread && props.onCloseThread) {
-										props.onCloseThread(item.thread.key);
+										onDeleteSession(item.session.file);
+									} else if (item.thread && onCloseThread) {
+										onCloseThread(item.thread.key);
 									}
 								}}
 							>
@@ -468,166 +524,246 @@ export function Sidebar(props: SidebarProps): ReactNode {
 				onDoubleClick={onResetWidth}
 				title="拖拽调整侧边栏宽度，双击恢复默认"
 			/>
-			<div className="sb-titlebar">
-				<button
-					type="button"
-					className="sb-titlebar-toggle"
-					title="折叠侧边栏 (⌘B)"
-					onClick={props.onToggleSidebar}
-				>
-					<PanelLeft size={14} />
-				</button>
+
+			{/* 1. 顶栏控制面：项目切换器与折叠按钮 */}
+			<div className="sb-header-bar">
+				<div className="sb-project-selector-wrapper">
+					<button
+						type="button"
+						className="sb-project-current-btn"
+						title={currentProjectObj ? shortPath(currentProjectObj.path) : "选择项目"}
+						onClick={() => setIsProjectMenuOpen(v => !v)}
+					>
+						<Folder className="sb-project-current-icon" size={14} />
+						<span className="sb-project-current-name">
+							{currentProjectObj?.name ?? "未选择项目"}
+						</span>
+						<ChevronDown size={12} className={`sb-project-chev${isProjectMenuOpen ? " is-open" : ""}`} />
+					</button>
+				</div>
+				<div className="sb-header-tools">
+					<button
+						type="button"
+						className="sb-icon-btn"
+						title="添加本地项目"
+						onClick={onAddProject}
+					>
+						<FolderPlus size={14} />
+					</button>
+					<button
+						type="button"
+						className="sb-icon-btn"
+						title="折叠侧边栏 (⌘B)"
+						onClick={onToggleSidebar}
+					>
+						<PanelLeft size={14} />
+					</button>
+				</div>
 			</div>
-			<div className="sb-actions">
+
+			{/* 项目切换下拉面板 */}
+			{isProjectMenuOpen && (
+				<div className="sb-project-dropdown-overlay" onClick={() => setIsProjectMenuOpen(false)}>
+					<div className="sb-project-dropdown" onClick={e => e.stopPropagation()}>
+						<div className="sb-project-dropdown-head">
+							<span>切换项目工作区</span>
+							<button type="button" className="sb-icon-btn" title="添加新项目" onClick={() => { setIsProjectMenuOpen(false); onAddProject(); }}>
+								<FolderPlus size={13} />
+							</button>
+						</div>
+						<div className="sb-project-dropdown-list">
+							{projects.map(p => {
+								const isSelected = p.path === currentProjectObj?.path;
+								const count = p.sessions.length;
+								return (
+									<div key={p.path} className={`sb-project-dropdown-item${isSelected ? " is-selected" : ""}`}>
+										<button
+											type="button"
+											className="sb-project-dropdown-main"
+											onClick={() => {
+												setIsProjectMenuOpen(false);
+												onSelectProject?.(p.path);
+											}}
+										>
+											<Folder size={13} className="sb-item-icon" />
+											<div className="sb-project-item-info">
+												<span className="sb-item-title">{p.name}</span>
+												<span className="sb-item-meta">{count} 个会话 · {shortPath(p.path)}</span>
+											</div>
+										</button>
+										<button
+											type="button"
+											className="sb-icon-btn sb-remove-proj-btn"
+											title="从列表中移除"
+											onClick={e => {
+												e.stopPropagation();
+												onRemoveProject(p.path);
+											}}
+										>
+											<X size={12} />
+										</button>
+									</div>
+								);
+							})}
+						</div>
+					</div>
+				</div>
+			)}
+
+			{/* 2. 项目工程上下文徽标（Git分支与改动感知） */}
+			{currentProjectObj && (
+				<div className="sb-project-banner">
+					<div className="sb-project-banner-left">
+						{gitStatus?.isGitRepo && (
+							<span className="sb-git-chip" title={`当前 Git 分支: ${gitStatus.branch ?? "未知"}`}>
+								<GitBranch size={11} />
+								<span className="sb-git-branch-text">{gitStatus.branch ?? "detached"}</span>
+								{(gitStatus.totalChanges ?? 0) > 0 && (
+									<span className="sb-git-dirty-badge" title={`${gitStatus.totalChanges} 个未提交变更`}>
+										+{gitStatus.totalChanges}
+									</span>
+								)}
+							</span>
+						)}
+					</div>
+					<div className="sb-project-banner-right">
+						<button
+							type="button"
+							className="sb-banner-icon-btn"
+							title="在访达中显示"
+							onClick={() => void window.omp.revealPath(currentProjectObj.path)}
+						>
+							<FolderOpen size={12} />
+						</button>
+					</div>
+				</div>
+			)}
+
+			{/* 3. 主操作行：即时搜索过滤框 + 新对话按钮 */}
+			<div className="sb-search-action-row">
+				<div className="sb-search-box">
+					<Search size={13} className="sb-search-icon" />
+					<input
+						ref={searchInputRef}
+						type="text"
+						className="sb-search-input"
+						placeholder="快速过滤会话... (/)"
+						value={searchQuery}
+						onChange={e => setSearchQuery(e.target.value)}
+					/>
+					{searchQuery && (
+						<button
+							type="button"
+							className="sb-search-clear"
+							title="清空搜索"
+							onClick={() => setSearchQuery("")}
+						>
+							<X size={11} />
+						</button>
+					)}
+				</div>
 				<button
 					type="button"
-					className="sb-action"
-					disabled={!activeProject}
+					className="sb-new-btn"
+					disabled={!currentProjectObj}
+					title="在此项目中新建对话 (⌘N)"
 					onClick={() => {
-						if (activeProject) {
-							expandProject(activeProject);
-							props.onNewThread(activeProject);
+						if (currentProjectObj) {
+							onNewThread(currentProjectObj.path);
 						}
 					}}
 				>
-					<SquarePen size={15} />
-					<span>新对话</span>
+					<SquarePen size={14} />
 				</button>
 			</div>
 
-			<div className="sb-section-head">
-				<span>项目</span>
-				<button type="button" className="sb-icon-btn" title="添加项目" onClick={props.onAddProject}>
-					<FolderPlus size={14} />
-				</button>
-			</div>
-
+			{/* 4. 会话内容滚动容器 */}
 			<nav className="sb-scroll">
-				{projects.length === 0 && (
-					<div className="sb-empty">
-						还没有项目。
-						<button type="button" className="sb-link" onClick={props.onAddProject}>
-							添加项目
-						</button>
+				{/* 4.1 活跃看板 (Live Agent Hub) */}
+				{liveHubItems.length > 0 && (
+					<div className="sb-live-hub">
+						<div className="sb-subgroup-title sb-live-title">
+							<Zap size={11} className="sb-live-icon" />
+							<span>执行态看板 ({liveHubItems.length})</span>
+						</div>
+						<ul className="sb-threads sb-live-threads">
+							{liveHubItems.map(item => renderThreadItem(item))}
+						</ul>
 					</div>
 				)}
-				{projects.map(project => {
-					// 每个项目独立维护折叠状态，当前项目和其他项目完全非互斥，均可随时折叠和展开
-					const isCollapsed = !uncollapsed.has(project.path);
-					const allItems = projectThreadItems.get(project.path) ?? [];
-					const pinnedItems = allItems.filter(item => pinnedKeys.has(item.key));
-					const archivedItems = allItems.filter(item => archivedKeys.has(item.key));
-					const activeItems = allItems.filter(item => !pinnedKeys.has(item.key) && !archivedKeys.has(item.key));
-					const showAll = expanded.has(project.path);
-					const visibleActiveItems = showAll ? activeItems : activeItems.slice(0, COLLAPSED_LIMIT);
-					const isArchiveOpen = archivedExpanded.has(project.path);
 
-					return (
-						<div key={project.path} className="sb-project">
-							<div className={`sb-project-row${project.path === activeProject ? " is-current" : ""}`}>
-								<button
-									type="button"
-									className="sb-project-toggle"
-									title={shortPath(project.path)}
-									onClick={() => toggleProject(project.path)}
-								>
-									<ChevronRight size={12} className={`sb-chev${isCollapsed ? "" : " is-open"}`} />
-									<Folder size={14} />
-									<span className={`sb-project-name${project.missing ? " is-missing" : ""}`}>{project.name}</span>
-								</button>
-								<div className="sb-row-tools">
-									<button
-										type="button"
-										className="sb-icon-btn"
-										title="在此项目中新建对话"
-										disabled={project.missing}
-										onClick={() => {
-											expandProject(project.path);
-											props.onNewThread(project.path);
-										}}
-									>
-										<SquarePen size={13} />
-									</button>
-									<button
-										type="button"
-										className="sb-icon-btn"
-										title="从列表中移除"
-										onClick={() => handleRemoveProject(project.path)}
-									>
-										<X size={13} />
-									</button>
-								</div>
-							</div>
-							{!isCollapsed && (
-								<div className="sb-project-threads">
-									{pinnedItems.length > 0 && (
-										<div className="sb-pinned-section">
-											<div className="sb-subgroup-title">
-												<Pin size={10} />
-												<span>置顶</span>
-											</div>
-											<ul className="sb-threads">
-												{pinnedItems.map(item => renderThreadItem(item))}
-											</ul>
-										</div>
-									)}
-
-									<ul className="sb-threads">
-										{visibleActiveItems.map(item => renderThreadItem(item))}
-									</ul>
-
-									{activeItems.length > COLLAPSED_LIMIT && (
-										<button
-											type="button"
-											className="sb-more"
-											onClick={() => setExpanded(s => toggle(s, project.path))}
-										>
-											{showAll ? "收起" : `显示全部 ${activeItems.length} 个`}
-										</button>
-									)}
-
-									{archivedItems.length > 0 && (
-										<div className="sb-archive-group">
-											<button
-												type="button"
-												className="sb-archive-toggle"
-												onClick={() => setArchivedExpanded(s => toggle(s, project.path))}
-												title="已归档会话"
-											>
-												<ChevronRight size={12} className={`sb-chev${isArchiveOpen ? " is-open" : ""}`} />
-												<Archive size={12} />
-												<span>已归档 ({archivedItems.length})</span>
-											</button>
-											{isArchiveOpen && (
-												<ul className="sb-threads sb-threads-archived">
-													{archivedItems.map(item => renderThreadItem(item, true))}
-												</ul>
-											)}
-										</div>
-									)}
-
-									{pinnedItems.length === 0 && activeItems.length === 0 && archivedItems.length === 0 && (
-										<div className="sb-thread-empty">暂无对话</div>
-									)}
-								</div>
-							)}
+				{/* 4.2 置顶会话 */}
+				{pinnedItems.length > 0 && (
+					<div className="sb-pinned-section">
+						<div className="sb-subgroup-title">
+							<Pin size={10} />
+							<span>置顶 ({pinnedItems.length})</span>
 						</div>
-					);
-				})}
+						<ul className="sb-threads">
+							{pinnedItems.map(item => renderThreadItem(item))}
+						</ul>
+					</div>
+				)}
+
+				{/* 4.3 时间线分桶列表 */}
+				{timelineBuckets.map(bucket => (
+					<div key={bucket.key} className="sb-timeline-group">
+						<div className="sb-subgroup-title">
+							<span>{bucket.label}</span>
+							<span className="sb-group-count">{bucket.items.length}</span>
+						</div>
+						<ul className="sb-threads">
+							{bucket.items.map(item => renderThreadItem(item))}
+						</ul>
+					</div>
+				))}
+
+				{/* 空状态提示 */}
+				{filteredItems.length === 0 && (
+					<div className="sb-thread-empty">
+						{searchQuery ? `未找到匹配 "${searchQuery}" 的对话` : "暂无对话，点击上方新建"}
+					</div>
+				)}
+
+				{/* 4.4 已归档会话折叠 */}
+				{archivedItems.length > 0 && (
+					<div className="sb-archive-group">
+						<button
+							type="button"
+							className="sb-archive-toggle"
+							onClick={() => setArchivedExpanded(v => !v)}
+							title="已归档会话"
+						>
+							<ChevronRight size={12} className={`sb-chev${archivedExpanded ? " is-open" : ""}`} />
+							<Archive size={12} />
+							<span>已归档 ({archivedItems.length})</span>
+						</button>
+						{archivedExpanded && (
+							<ul className="sb-threads sb-threads-archived">
+								{archivedItems.map(item => renderThreadItem(item, true))}
+							</ul>
+						)}
+					</div>
+				)}
 			</nav>
 
+			{/* 5. 底部信息栏 */}
 			<footer className="sb-footer">
 				<button
 					type="button"
-					className={`sb-version-btn${props.isSettingsActive ? " is-active" : ""}`}
+					className={`sb-version-btn${isSettingsActive ? " is-active" : ""}`}
 					title="打开设置 (⌘,)"
 					onClick={onOpenSettings}
 				>
 					<Settings size={13} />
 					<span className="sb-version">{ompVersion ?? "设置"}</span>
 				</button>
+				<span className="sb-total-count" title="当前项目对话总数">
+					{currentProjectItems.length} 个对话
+				</span>
 			</footer>
 
+			{/* 右键上下文菜单 */}
 			{contextMenu && (
 				<div
 					className="sb-context-overlay"
@@ -703,7 +839,7 @@ export function Sidebar(props: SidebarProps): ReactNode {
 							type="button"
 							className="sb-context-item"
 							onClick={() => {
-								props.onExportSession?.(contextMenu.item, contextMenu.projectPath);
+								onExportSession?.(contextMenu.item, contextMenu.projectPath);
 								setContextMenu(null);
 							}}
 						>
@@ -728,9 +864,9 @@ export function Sidebar(props: SidebarProps): ReactNode {
 							onClick={() => {
 								const { item } = contextMenu;
 								if (item.session) {
-									props.onDeleteSession(item.session.file);
-								} else if (item.thread && props.onCloseThread) {
-									props.onCloseThread(item.thread.key);
+									onDeleteSession(item.session.file);
+								} else if (item.thread && onCloseThread) {
+									onCloseThread(item.thread.key);
 								}
 								setContextMenu(null);
 							}}
