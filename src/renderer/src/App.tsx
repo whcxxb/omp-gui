@@ -377,7 +377,24 @@ export function App(): ReactNode {
 				activeKey={activeKey}
 				activeProject={activeProject}
 				ompVersion={ompVersion}
-				onSelectProject={path => setCurrentProject(path)}
+				onSelectProject={path => {
+					setCurrentProject(path);
+					// 切换项目时，如果当前激活的会话不在新项目内，优先切换到新项目的首个已打开会话或首个历史会话
+					if (active?.cwd !== path) {
+						const openInTarget = threads.find(t => t.cwd === path);
+						if (openInTarget) {
+							selectThread(openInTarget.key);
+						} else {
+							const targetProj = projects.find(p => p.path === path);
+							const firstSession = targetProj?.sessions.find(s => s.hasMessages);
+							if (firstSession) {
+								openSession(firstSession);
+							} else {
+								setActiveKey(null);
+							}
+						}
+					}
+				}}
 				onNewThread={newThread}
 				onOpenSession={openSession}
 				onSelectThread={selectThread}
