@@ -32,7 +32,7 @@ import type { Thread } from "@/state/types";
 
 const PINNED_STORAGE_KEY = "omp_gui_pinned_sessions";
 const ARCHIVED_STORAGE_KEY = "omp_gui_archived_sessions";
-
+const COLLAPSED_BUCKETS_KEY = "omp_gui_collapsed_timeline_buckets";
 export interface SidebarThreadItem {
 	key: string;
 	title: string;
@@ -220,6 +220,28 @@ export function Sidebar(props: SidebarProps): ReactNode {
 	});
 
 	const [archivedExpanded, setArchivedExpanded] = useState(false);
+
+	// 时间线各分组（今天/昨天/最近7天等）折叠状态持久化
+	const [collapsedBuckets, setCollapsedBuckets] = useState<Set<string>>(() => {
+		try {
+			const raw = localStorage.getItem(COLLAPSED_BUCKETS_KEY);
+			return raw ? new Set(JSON.parse(raw) as string[]) : new Set();
+		} catch {
+			return new Set();
+		}
+	});
+
+	const toggleBucket = (bucketKey: string): void => {
+		setCollapsedBuckets(prev => {
+			const next = new Set(prev);
+			if (next.has(bucketKey)) next.delete(bucketKey);
+			else next.add(bucketKey);
+			try {
+				localStorage.setItem(COLLAPSED_BUCKETS_KEY, JSON.stringify([...next]));
+			} catch {}
+			return next;
+		});
+	};
 
 	const togglePin = (targetKey: string): void => {
 		setPinnedKeys(prev => {
@@ -468,8 +490,8 @@ export function Sidebar(props: SidebarProps): ReactNode {
 							)}
 						</div>
 					</div>
-					<div className="sb-thread-actions" onClick={e => e.stopPropagation()}>
-						{!isArchivedList && editingKey !== item.key && (
+					{!isArchivedList && editingKey !== item.key && (
+						<div className="sb-thread-actions" onClick={e => e.stopPropagation()}>
 							<button
 								type="button"
 								className={`sb-thread-pin${isPinned ? " is-pinned" : ""}`}
@@ -479,37 +501,10 @@ export function Sidebar(props: SidebarProps): ReactNode {
 									togglePin(item.key);
 								}}
 							>
-								{isPinned ? <PinOff size={11} /> : <Pin size={11} />}
+								{isPinned ? <PinOff size={13} /> : <Pin size={13} />}
 							</button>
-						)}
-						{editingKey !== item.key && (
-							<button
-								type="button"
-								className="sb-thread-rename"
-								title="重命名此对话"
-								onClick={e => startRenaming(item, e)}
-							>
-								<Pencil size={11} />
-							</button>
-						)}
-						{(item.session || item.thread) && editingKey !== item.key && (
-							<button
-								type="button"
-								className="sb-thread-delete"
-								title={item.session ? "删除此会话" : "关闭此新对话"}
-								onClick={e => {
-									e.stopPropagation();
-									if (item.session) {
-										onDeleteSession(item.session.file);
-									} else if (item.thread && onCloseThread) {
-										onCloseThread(item.thread.key);
-									}
-								}}
-							>
-								<Trash2 size={12} />
-							</button>
-						)}
-					</div>
+						</div>
+					)}
 				</button>
 			</li>
 		);
@@ -704,18 +699,28 @@ export function Sidebar(props: SidebarProps): ReactNode {
 					</div>
 				)}
 
-				{/* 4.3 时间线分桶列表 */}
-				{timelineBuckets.map(bucket => (
-					<div key={bucket.key} className="sb-timeline-group">
-						<div className="sb-subgroup-title">
-							<span>{bucket.label}</span>
-							<span className="sb-group-count">{bucket.items.length}</span>
+				{/* 4.3 时间线分桶列表（可折叠） */}
+				{timelineBuckets.map(bucket => {
+					const isCollapsed = collapsedBuckets.has(bucket.key);
+					return (
+						<div key={bucket.key} className="sb-timeline-group">
+							<button
+								type="button"
+								className="sb-subgroup-title sb-timeline-header-btn"
+								onClick={() => toggleBucket(bucket.key)}
+							>
+								<ChevronRight size={11} className={`sb-chev${isCollapsed ? "" : " is-open"}`} />
+								<span>{bucket.label}</span>
+								<span className="sb-group-count">{bucket.items.length}</span>
+							</button>
+							{!isCollapsed && (
+								<ul className="sb-threads">
+									{bucket.items.map(item => renderThreadItem(item))}
+								</ul>
+							)}
 						</div>
-						<ul className="sb-threads">
-							{bucket.items.map(item => renderThreadItem(item))}
-						</ul>
-					</div>
-				))}
+					);
+				})}
 
 				{/* 空状态提示 */}
 				{filteredItems.length === 0 && (

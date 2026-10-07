@@ -503,14 +503,38 @@
 }
 
 .sb-timeline-group + .sb-timeline-group {
-	margin-top: 6px;
+	margin-top: 4px;
+}
+
+.sb-timeline-header-btn {
+	width: 100%;
+	border: none;
+	background: transparent;
+	text-align: left;
+	cursor: pointer;
+	border-radius: var(--radius-sm);
+	transition: background-color 100ms ease, color 100ms ease;
+}
+
+.sb-timeline-header-btn:hover {
+	background: var(--bg-hover);
+	color: var(--fg);
+}
+
+.sb-timeline-header-btn .sb-chev {
+	margin-right: 2px;
+	transition: transform 120ms ease;
+}
+
+.sb-timeline-header-btn .sb-chev.is-open {
+	transform: rotate(90deg);
 }
 
 .sb-group-count {
 	margin-left: auto;
 	font-size: 10px;
 	color: var(--fg-faint);
-	font-weight: 400;
+	font-weight: 500;
 }
 .sb-scroll {
 	flex: 1;
@@ -4882,59 +4906,53 @@
 	}
 }
 
-/* ---------- 快捷按钮与操作 ---------- */
 .sb-thread-actions {
 	position: absolute;
-	right: 4px;
+	right: 6px;
 	top: 50%;
 	transform: translateY(-50%);
 	display: flex;
 	align-items: center;
-	gap: 2px;
-	padding: 2px;
-	border-radius: var(--radius-sm);
-	background: var(--bg-hover);
-	box-shadow: -4px 0 8px 2px var(--bg-hover);
-	opacity: 0;
-	pointer-events: none;
-	transition: opacity 120ms ease;
-	z-index: 2;
+	justify-content: center;
+	z-index: 3;
 }
 
-.sb-thread.is-active .sb-thread-actions {
-	background: var(--bg-active);
-	box-shadow: -4px 0 8px 2px var(--bg-active);
-}
-
-.sb-thread:hover .sb-thread-actions,
-.sb-thread:focus-within .sb-thread-actions {
-	opacity: 1;
-	pointer-events: auto;
-}
-
-.sb-thread-rename,
-.sb-thread-pin,
-.sb-thread-delete {
+.sb-thread-pin {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	width: 18px;
-	height: 18px;
-	border: none;
+	width: 24px;
+	height: 24px;
+	border: 1px solid var(--border-subtle);
 	border-radius: var(--radius-sm);
-	background: transparent;
+	background: var(--bg-elevated);
 	color: var(--fg-faint);
 	cursor: pointer;
-	transition: color 100ms ease, background-color 100ms ease;
+	opacity: 0;
+	box-shadow: var(--shadow-sm, 0 1px 3px rgba(0,0,0,0.12));
+	transition: opacity 120ms ease, color 120ms ease, background-color 100ms ease, border-color 100ms ease;
 	flex-shrink: 0;
+}
+
+.sb-thread:hover .sb-thread-pin,
+.sb-thread-pin.is-pinned {
+	opacity: 1;
 }
 
 .sb-thread-pin.is-pinned {
 	color: var(--accent);
+	border-color: var(--accent);
+	background: var(--bg-active);
 }
 
 .sb-thread-pin:hover {
 	color: var(--fg);
+	background: var(--bg-hover);
+	border-color: var(--border-strong);
+}
+
+.sb-thread-pin.is-pinned:hover {
+	color: var(--accent);
 	background: var(--bg-hover);
 }
 
