@@ -1,6 +1,8 @@
 import {
+	AlertCircle,
 	Archive,
 	ArchiveRestore,
+	ArrowUpCircle,
 	CheckCircle2,
 	ChevronDown,
 	ChevronRight,
@@ -16,6 +18,7 @@ import {
 	Pencil,
 	Pin,
 	PinOff,
+	RotateCcw,
 	Search,
 	Settings,
 	Sparkles,
@@ -26,7 +29,7 @@ import {
 	Zap,
 } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import type { GitStatusResult, ProjectSummary, SessionSummary } from "@shared/ipc";
+import type { GitStatusResult, ProjectSummary, SessionSummary, UpdateStatus } from "@shared/ipc";
 import { bucketByTimeline, relativeTime, shortPath } from "@/lib/time";
 import type { Thread } from "@/state/types";
 
@@ -106,6 +109,19 @@ export function Sidebar(props: SidebarProps): ReactNode {
 		onToggleSidebar,
 		isSettingsActive,
 	} = props;
+	const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ state: "idle" });
+	const [showUpdatePopover, setShowUpdatePopover] = useState(false);
+
+	useEffect(() => {
+		void window.omp.getUpdateStatus().then(setUpdateStatus);
+		const unsub = window.omp.onUpdateStatus(status => {
+			setUpdateStatus(status);
+			if (status.state === "available" || status.state === "downloaded") {
+				setShowUpdatePopover(true);
+			}
+		});
+		return unsub;
+	}, []);
 
 	const [searchQuery, setSearchQuery] = useState("");
 	const [isProjectMenuOpen, setIsProjectMenuOpen] = useState(false);
@@ -620,16 +636,6 @@ export function Sidebar(props: SidebarProps): ReactNode {
 							</span>
 						)}
 					</div>
-					<div className="sb-project-banner-right">
-						<button
-							type="button"
-							className="sb-banner-icon-btn"
-							title="在访达中显示"
-							onClick={() => void window.omp.revealPath(currentProjectObj.path)}
-						>
-							<FolderOpen size={12} />
-						</button>
-					</div>
 				</div>
 			)}
 
@@ -753,18 +759,189 @@ export function Sidebar(props: SidebarProps): ReactNode {
 
 			{/* 5. 底部信息栏 */}
 			<footer className="sb-footer">
-				<button
-					type="button"
-					className={`sb-version-btn${isSettingsActive ? " is-active" : ""}`}
-					title="打开设置 (⌘,)"
-					onClick={onOpenSettings}
-				>
-					<Settings size={13} />
-					<span className="sb-version">{ompVersion ?? "设置"}</span>
-				</button>
+				<div className="sb-footer-left">
+					<button
+						type="button"
+						className={`sb-version-btn${isSettingsActive ? " is-active" : ""}`}
+						title="打开设置 (⌘,)"
+						onClick={onOpenSettings}
+					>
+						<Settings size={13} />
+						<span className="sb-version">{ompVersion ?? "设置"}</span>
+					</button>
+
+					{/* 更新指示按钮 */}
+					{updateStatus.state === "available" && (
+						<button
+							type="button"
+							className="sb-update-btn"
+							title="发现新版本，点击查看"
+							onClick={() => setShowUpdatePopover(v => !v)}
+						>
+							<ArrowUpCircle size={13} />
+							<span>v{updateStatus.info.version}</span>
+						</button>
+					)}
+
+					{updateStatus.state === "downloading" && (
+						<button
+							type="button"
+							className="sb-update-btn"
+							title="正在下载更新..."
+							onClick={() => setShowUpdatePopover(v => !v)}
+						>
+							<Loader2 size={13} className="animate-spin" />
+							<span>{updateStatus.progress}%</span>
+						</button>
+					)}
+
+					{updateStatus.state === "downloaded" && (
+						<button
+							type="button"
+							className="sb-update-btn is-ready"
+							title="更新已就绪，点击重启"
+							onClick={() => setShowUpdatePopover(v => !v)}
+						>
+							<RotateCcw size={13} />
+							<span>重启更新</span>
+						</button>
+					)}
+				</div>
+
 				<span className="sb-total-count" title="当前项目对话总数">
 					{currentProjectItems.length} 个对话
 				</span>
+
+				{/* 更新浮窗 */}
+				{showUpdatePopover && (
+					<div className="sb-update-popover">
+						<div className="sb-update-popover-header">
+							<div className="sb-update-popover-title">
+								{updateStatus.state === "downloaded" ? (
+									<>
+										<CheckCircle2 size={15} color="#22c55e" />
+										<span>更新已就绪</span>
+									</>
+								) : (
+									<>
+										<ArrowUpCircle size={15} color="var(--accent)" />
+										<span>
+											发现新版本{" "}
+											{"info" in updateStatus && updateStatus.info ? `v${updateStatus.info.version}` : ""}
+										</span>
+									</>
+								)}
+							</div>
+							<button
+								type="button"
+								className="sb-filter-clear"
+								onClick={() => setShowUpdatePopover(false)}
+							>
+								<X size={13} />
+							</button>
+						</div>
+
+						<div className="sb-update-popover-body">
+							{"warning" in updateStatus && updateStatus.warning && (
+								<div style={{ color: "var(--warning, #f59e0b)", marginBottom: 6, fontWeight: 500 }}>
+									⚠️ {updateStatus.warning}
+								</div>
+							)}
+							{"info" in updateStatus && updateStatus.info?.releaseNotes ? (
+								updateStatus.info.releaseNotes
+							) : (
+								<span>该版本包含性能优化与体验改进。</span>
+							)}
+						</div>
+
+						<div className="sb-update-popover-actions">
+							{updateStatus.state === "available" && (
+								<>
+									<button
+										type="button"
+										className="sb-update-action-btn is-secondary"
+										onClick={() => setShowUpdatePopover(false)}
+									>
+										稍后
+									</button>
+									<button
+										type="button"
+										className="sb-update-action-btn is-primary"
+										onClick={() => {
+											void window.omp.startUpdate();
+										}}
+									>
+										{updateStatus.info.hasAsar ? "立即热更新" : "下载更新"}
+									</button>
+								</>
+							)}
+
+							{updateStatus.state === "downloading" && (
+								<span style={{ fontSize: 11, color: "var(--fg-muted)" }}>
+									正在下载更新包... ({updateStatus.progress}%)
+								</span>
+							)}
+
+							{updateStatus.state === "downloaded" && (
+								<>
+									{updateStatus.busy && (
+										<span style={{ fontSize: 11, color: "var(--warning, #f59e0b)" }}>
+											⚠️ 当前有正在运行的任务，建议完成后重启
+										</span>
+									)}
+									<button
+										type="button"
+										className="sb-update-action-btn is-secondary"
+										onClick={() => setShowUpdatePopover(false)}
+									>
+										稍后重启
+									</button>
+									<button
+										type="button"
+										className="sb-update-action-btn is-success"
+										onClick={async () => {
+											const res = await window.omp.applyUpdateAndRestart();
+											if (res.busy) {
+												const proceed = window.confirm(
+													"当前后台有正在生成的对话或执行中的命令，立即重启将中断当前任务。确认强制重启并更新吗？",
+												);
+												if (proceed) {
+													await window.omp.applyUpdateAndRestart({ force: true });
+												}
+											}
+										}}
+									>
+										立即重启生效
+									</button>
+								</>
+							)}
+
+							{updateStatus.state === "error" && (
+								<>
+									<span style={{ fontSize: 11, color: "var(--danger, #ef4444)" }}>
+										{updateStatus.message}
+									</span>
+									{updateStatus.canRetry && (
+										<button
+											type="button"
+											className="sb-update-action-btn is-primary"
+											onClick={() => void window.omp.startUpdate()}
+										>
+											重试
+										</button>
+									)}
+									<button
+										type="button"
+										className="sb-update-action-btn is-secondary"
+										onClick={() => setShowUpdatePopover(false)}
+									>
+										关闭
+									</button>
+								</>
+							)}
+						</div>
+					</div>
+				)}
 			</footer>
 
 			{/* 右键上下文菜单 */}

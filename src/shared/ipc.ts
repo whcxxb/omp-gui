@@ -207,6 +207,29 @@ export interface TodoItem {
 	updatedAt: number;
 }
 
+export interface UpdateReleaseInfo {
+	version: string;
+	currentVersion: string;
+	releaseName?: string;
+	releaseNotes?: string;
+	publishedAt?: string;
+	hasAsar: boolean;
+	asarSize?: number;
+	asarDownloadUrl?: string;
+	dmgDownloadUrl?: string;
+	htmlUrl?: string;
+}
+
+export type UpdateStatus =
+	| { state: "idle" }
+	| { state: "checking" }
+	| { state: "up-to-date"; currentVersion: string }
+	| { state: "available"; info: UpdateReleaseInfo; warning?: string }
+	| { state: "downloading"; progress: number; info: UpdateReleaseInfo }
+	| { state: "downloaded"; info: UpdateReleaseInfo; busy?: boolean }
+	| { state: "error"; message: string; info?: UpdateReleaseInfo; canRetry?: boolean };
+
+
 export interface TodoCreateInput {
 	cwd: string;
 	title: string;
@@ -369,4 +392,11 @@ export interface OmpApi {
 	/** omp 模型目录（`omp models --json`，带缓存） */
 	listCatalogModels(): Promise<CatalogModel[]>;
 	onTodosChanged(listener: (cwd: string) => void): () => void;
+	/** 应用更新相关 */
+	getAppVersion(): Promise<string>;
+	checkForUpdates(manual?: boolean): Promise<UpdateStatus>;
+	startUpdate(): Promise<boolean>;
+	applyUpdateAndRestart(options?: { force?: boolean }): Promise<{ ok: boolean; busy?: boolean }>;
+	getUpdateStatus(): Promise<UpdateStatus>;
+	onUpdateStatus(listener: (status: UpdateStatus) => void): () => void;
 }

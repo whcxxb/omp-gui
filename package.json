@@ -1,6 +1,6 @@
 {
   "name": "omp-gui",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Oh My Pi 桌面客户端（RPC 驱动）",
   "author": "OMP Team",
@@ -13,9 +13,12 @@
     "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit",
     "sync:collab": "node scripts/sync-collab.mjs",
     "test:e2e": "node scripts/test-e2e.mjs",
-    "build:mac": "electron-vite build && electron-builder --mac --arm64 -p never"
+    "build:mac": "electron-vite build && electron-builder --mac --arm64 -p never",
+    "pack:asar": "node scripts/pack-asar.mjs",
+    "deploy:local": "node scripts/deploy-local.mjs"
   },
   "devDependencies": {
+    "@electron/asar": "^4.3.1",
     "@types/node": "^22.19.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

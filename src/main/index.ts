@@ -14,8 +14,10 @@ import { PROJECT_TODO_DEFINITION, PROJECT_TODO_TOOL, runProjectTodoTool } from "
 import { addAttachment, createTodo, deleteTodo, listTodos, readAttachment, recordRun, removeAttachment, reorderTodos, updateTodo } from "./todos";
 import { readStore, writeStore } from "./store";
 import { deleteMemoryItem, detectNewMemories, getOverallMemoryOverview } from "./memory";
+import { AppUpdater } from "./updater";
 
 let win: BrowserWindow | null = null;
+let updater: AppUpdater | null = null;
 
 const pool = new RuntimePool(
 	(runtimeId, message) => {
@@ -318,10 +320,22 @@ function registerIpc(): void {
 			return null;
 		}
 	});
+	ipcMain.handle("omp:app-version", () => updater?.getAppVersion() ?? app.getVersion());
+	ipcMain.handle("omp:check-for-updates", (_e, manual?: boolean) => updater?.checkForUpdates(manual));
+	ipcMain.handle("omp:start-update", () => updater?.startUpdate());
+	ipcMain.handle("omp:apply-update-and-restart", (_e, options?: { force?: boolean }) =>
+		updater?.applyUpdateAndRestart(options),
+	);
+	ipcMain.handle("omp:get-update-status", () => updater?.getStatus());
 	registerTerminalIpc(() => win);
 }
 
 app.whenReady().then(() => {
+	updater = new AppUpdater(
+		() => win,
+		() => pool.hasBusyRuntimes(),
+	);
+	updater.init();
 	registerIpc();
 	if (process.platform === "darwin" && app.dock) {
 		const iconPath = join(import.meta.dirname, "../../build/icon.png");
@@ -342,4 +356,5 @@ app.on("window-all-closed", () => {
 app.on("before-quit", () => {
 	cleanupTerminalProcesses();
 	pool.disposeAll();
+	updater?.destroy();
 });

@@ -1,14 +1,18 @@
 import {
 	ArrowLeft,
+	ArrowUpCircle,
 	Bot,
 	Brain,
 	Check,
+	CheckCircle2,
 	Cpu,
 	Folder,
 	GitBranch,
 	Info,
 	Keyboard,
+	Loader2,
 	Palette,
+	RotateCcw,
 	RotateCw,
 	ScrollText,
 	Search,
@@ -22,7 +26,7 @@ import {
 	Zap,
 } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
-import type { ApprovalMode } from "@shared/ipc";
+import type { ApprovalMode, UpdateStatus } from "@shared/ipc";
 import { THEMES, type Theme, applyTheme, loadTheme } from "@/lib/theme";
 import { getSoundVolume, isSoundEnabled, playSound, setSoundEnabled, setSoundVolume } from "@/lib/sound";
 import { SkillManager } from "./SkillManager";
@@ -132,6 +136,15 @@ export function SettingsModal(props: SettingsModalProps): ReactNode {
 	const { isOpen, onClose, ompVersion, onResetSidebarWidth, activeProject, initialTab } = props;
 	const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? "appearance");
 	const [navFilter, setNavFilter] = useState("");
+	const [appVersion, setAppVersion] = useState("0.1.0");
+	const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ state: "idle" });
+
+	useEffect(() => {
+		void window.omp.getAppVersion().then(setAppVersion);
+		void window.omp.getUpdateStatus().then(setUpdateStatus);
+		const unsub = window.omp.onUpdateStatus(setUpdateStatus);
+		return unsub;
+	}, []);
 
 	// GUI 偏好
 	const [theme, setTheme] = useState<Theme>(loadTheme);
@@ -793,7 +806,51 @@ export function SettingsModal(props: SettingsModalProps): ReactNode {
 									</div>
 									<div className="set-about-row">
 										<span className="set-about-label">OMP GUI 客户端</span>
-										<span className="set-about-val">v0.1.0 (RPC v2)</span>
+										<div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+											<span className="set-about-val">v{appVersion} (RPC v2)</span>
+											{updateStatus.state === "checking" && (
+												<span style={{ fontSize: 12, color: "var(--fg-muted)", display: "flex", alignItems: "center", gap: 4 }}>
+													<Loader2 size={12} className="animate-spin" /> 检查中...
+												</span>
+											)}
+											{updateStatus.state === "up-to-date" && (
+												<span style={{ fontSize: 12, color: "#22c55e", display: "flex", alignItems: "center", gap: 4 }}>
+													<CheckCircle2 size={12} /> 已是最新版
+												</span>
+											)}
+											{updateStatus.state === "available" && (
+												<button
+													type="button"
+													className="sb-update-action-btn is-primary"
+													onClick={() => void window.omp.startUpdate()}
+												>
+													<ArrowUpCircle size={12} /> 升级至 v{updateStatus.info.version}
+												</button>
+											)}
+											{updateStatus.state === "downloading" && (
+												<span style={{ fontSize: 12, color: "var(--accent)" }}>
+													下载中 {updateStatus.progress}%
+												</span>
+											)}
+											{updateStatus.state === "downloaded" && (
+												<button
+													type="button"
+													className="sb-update-action-btn is-success"
+													onClick={() => void window.omp.applyUpdateAndRestart()}
+												>
+													<RotateCcw size={12} /> 重启生效
+												</button>
+											)}
+											{updateStatus.state !== "checking" && updateStatus.state !== "downloading" && (
+												<button
+													type="button"
+													className="sb-update-action-btn is-secondary"
+													onClick={() => void window.omp.checkForUpdates(true)}
+												>
+													检查更新
+												</button>
+											)}
+										</div>
 									</div>
 									<div className="set-about-row">
 										<span className="set-about-label">通信协议</span>

@@ -490,8 +490,12 @@ async function run() {
 		console.log("   直接发送干预当前任务成功，卡片正常出队");
 		console.log("12. 测试对话重命名功能 (侧边栏与标题栏)...");
 		const renameSidebarResult = await evalJs(`(async () => {
-			const renameBtn = document.querySelector(".sb-thread-rename");
-			if (!renameBtn) return { error: "未找到侧边栏重命名按钮 .sb-thread-rename" };
+			const threadItem = document.querySelector(".sb-thread");
+			if (!threadItem) return { error: "未找到会话项 .sb-thread" };
+			threadItem.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 100, clientY: 200 }));
+			await new Promise(r => setTimeout(r, 200));
+			const renameBtn = Array.from(document.querySelectorAll(".sb-context-item")).find(btn => btn.textContent?.includes("重命名"));
+			if (!renameBtn) return { error: "未在右键菜单中找到重命名选项" };
 			renameBtn.click();
 			await new Promise(r => setTimeout(r, 200));
 			const input = document.querySelector(".sb-thread-rename-input");

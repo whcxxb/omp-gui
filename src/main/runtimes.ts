@@ -296,6 +296,13 @@ export class RuntimePool {
 		this.#entries.clear();
 	}
 
+	hasBusyRuntimes(): boolean {
+		for (const entry of this.#entries.values()) {
+			if (entry.streaming || entry.submissions > 0) return true;
+		}
+		return false;
+	}
+
 	#evict(keep: string): void {
 		const idle = [...this.#entries.entries()]
 			.filter(([id, e]) => id !== keep && !e.streaming)

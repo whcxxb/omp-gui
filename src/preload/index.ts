@@ -1,4 +1,4 @@
-import type { MemorySavedEvent, OmpApi, RuntimeMessage, TerminalExitEvent, TerminalOutputEvent } from "@shared/ipc";
+import type { MemorySavedEvent, OmpApi, RuntimeMessage, TerminalExitEvent, TerminalOutputEvent, UpdateStatus } from "@shared/ipc";
 import { contextBridge, ipcRenderer, webUtils } from "electron";
 
 const api: OmpApi = {
@@ -60,6 +60,16 @@ const api: OmpApi = {
 	readTodoAttachment: blob => ipcRenderer.invoke("omp:todos-read-attachment", blob),
 	recordTodoRun: (cwd, todoId, run) => ipcRenderer.invoke("omp:todos-record-run", cwd, todoId, run),
 	listCatalogModels: () => ipcRenderer.invoke("omp:list-catalog-models"),
+	getAppVersion: () => ipcRenderer.invoke("omp:app-version"),
+	checkForUpdates: manual => ipcRenderer.invoke("omp:check-for-updates", manual),
+	startUpdate: () => ipcRenderer.invoke("omp:start-update"),
+	applyUpdateAndRestart: options => ipcRenderer.invoke("omp:apply-update-and-restart", options),
+	getUpdateStatus: () => ipcRenderer.invoke("omp:get-update-status"),
+	onUpdateStatus(listener) {
+		const handler = (_e: unknown, status: UpdateStatus) => listener(status);
+		ipcRenderer.on("omp:update-status", handler);
+		return () => ipcRenderer.removeListener("omp:update-status", handler);
+	},
 	onTodosChanged(listener) {
 		const handler = (_e: unknown, cwd: string) => listener(cwd);
 		ipcRenderer.on("omp:todos-changed", handler);
