@@ -1,8 +1,10 @@
 import { app, BrowserWindow } from "electron";
-import { copyFileSync, createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, statSync, unlinkSync } from "node:fs";
+import ofs from "original-fs";
 import { join } from "node:path";
 import { get as httpGet } from "node:https";
 import type { UpdateReleaseInfo, UpdateStatus } from "@shared/ipc";
+
+const { copyFileSync, createWriteStream, existsSync, mkdirSync, unlinkSync } = ofs;
 
 const GITHUB_OWNER = "whcxxb";
 const GITHUB_REPO = "omp-gui";

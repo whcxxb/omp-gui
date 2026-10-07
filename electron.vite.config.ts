@@ -5,6 +5,11 @@ import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 export default defineConfig({
 	main: {
 		plugins: [externalizeDepsPlugin()],
+		build: {
+			rollupOptions: {
+				external: ["original-fs"],
+			},
+		},
 		resolve: { alias: { "@shared": resolve("src/shared") } },
 	},
 	preload: {
