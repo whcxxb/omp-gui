@@ -834,7 +834,8 @@ export function Sidebar(props: SidebarProps): ReactNode {
 							</div>
 							<button
 								type="button"
-								className="sb-filter-clear"
+								className="sb-update-close-btn"
+								title="关闭提示"
 								onClick={() => setShowUpdatePopover(false)}
 							>
 								<X size={13} />
@@ -848,7 +849,7 @@ export function Sidebar(props: SidebarProps): ReactNode {
 								</div>
 							)}
 							{"info" in updateStatus && updateStatus.info?.releaseNotes ? (
-								updateStatus.info.releaseNotes
+								updateStatus.info.releaseNotes.replace(/\\n/g, "\n")
 							) : (
 								<span>该版本包含性能优化与体验改进。</span>
 							)}
